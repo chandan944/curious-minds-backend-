@@ -25,3 +25,30 @@ jobs:
 
       - name: Build Spring Boot Application
         run: ./mvnw clean package -DskipTests
+
+  deploy:
+    needs: build-backend
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H 13.205.35.29 >> ~/.ssh/known_hosts
+
+      - name: Build Jar for Upload
+        # We rebuild or use an artifact. Rebuilding is simpler for now..
+        run: |
+          sudo apt-get install -y openjdk-21-jdk
+          chmod +x mvnw
+          ./mvnw clean package -DskipTests
+
+      - name: Deploy to AWS
+        run: |
+          scp -i ~/.ssh/id_rsa target/DSA-0.0.1-SNAPSHOT.jar ubuntu@13.205.35.29:/home/ubuntu/app.jar
+          ssh -i ~/.ssh/id_rsa ubuntu@13.205.35.29 "sudo systemctl restart myapp"
