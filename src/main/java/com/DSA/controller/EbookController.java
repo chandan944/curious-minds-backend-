@@ -38,7 +38,7 @@ public class EbookController {
     public ResponseEntity<?> uploadEbook(
             Authentication authentication,
             @RequestParam("file") MultipartFile file,
-            @RequestParam("title") String title,
+            @RequestParam(value = "title", required = false) String title,
             @RequestParam(value = "description", required = false) String description,
             @RequestParam(value = "coverImage", required = false) MultipartFile coverImage) {
 
@@ -65,8 +65,18 @@ public class EbookController {
                 }
             }
 
+            String finalTitle = title;
+            if (finalTitle == null || finalTitle.trim().isEmpty()) {
+                finalTitle = file.getOriginalFilename();
+                if (finalTitle != null && finalTitle.toLowerCase().endsWith(".pdf")) {
+                    finalTitle = finalTitle.substring(0, finalTitle.length() - 4);
+                } else if (finalTitle == null) {
+                    finalTitle = "Untitled Book";
+                }
+            }
+
             Ebook ebook = Ebook.builder()
-                    .title(title)
+                    .title(finalTitle)
                     .description(description)
                     .fileUrl(fileUrl)
                     .coverImageUrl(coverImageUrl)
