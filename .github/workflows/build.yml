@@ -42,14 +42,23 @@ jobs:
           name: app-jar
           path: target/
 
-      - name: Set up SSH
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H 13.205.35.29 >> ~/.ssh/known_hosts
+      - name: Copy JAR to Server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: 13.205.35.29
+          username: ubuntu
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "target/DSA-0.0.1-SNAPSHOT.jar"
+          target: "/home/ubuntu/"
+          strip_components: 1
 
-      - name: Deploy to AWS
-        run: |
-          scp -i ~/.ssh/id_rsa target/DSA-0.0.1-SNAPSHOT.jar ubuntu@13.205.35.29:/home/ubuntu/app.jar
-          ssh -i ~/.ssh/id_rsa ubuntu@13.205.35.29 "sudo systemctl restart myapp"
+      - name: Restart Service via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: 13.205.35.29
+          username: ubuntu
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            sudo mv /home/ubuntu/DSA-0.0.1-SNAPSHOT.jar /home/ubuntu/app.jar
+            sudo systemctl restart myapp
+            echo "Deployment successful! Live at https://curiousminds.dpdns.org"
