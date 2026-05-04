@@ -9,7 +9,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.format.DateTimeFormatter;
-import java.util.Optional;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -33,6 +34,8 @@ public class SocialService {
         if (existing.isPresent()) {
             // Unlike
             userLikeRepository.delete(existing.get());
+            // Delete notification if exists
+            notificationRepository.deleteByRecipientIdAndSenderIdAndType(targetUserId, likerId, NotificationType.LIKE);
             return false; // now unliked
         }
 
@@ -47,6 +50,9 @@ public class SocialService {
                 .likedUser(target)
                 .build();
         userLikeRepository.save(like);
+
+        // Delete any old LIKE notification from this user just to be safe
+        notificationRepository.deleteByRecipientIdAndSenderIdAndType(targetUserId, likerId, NotificationType.LIKE);
 
         // Create and push notification
         Notification notif = Notification.builder()
@@ -163,6 +169,103 @@ public class SocialService {
         Optional<Friendship> f = friendshipRepository.findBetweenUsers(userId1, userId2);
         if (f.isEmpty()) return "NONE";
         return f.get().getStatus().name();
+    }
+
+    // ── Get pending requests for Discover screen ──────────────────────────────
+    public List<Map<String, Object>> getPendingRequests(Long userId) {
+        return friendshipRepository.findPendingRequestsForUser(userId).stream()
+                .map(f -> {
+                    User r = f.getRequester();
+                    Map<String, Object> map = new LinkedHashMap<>();
+                    map.put("friendshipId", f.getId());
+                    map.put("senderId", r.getId());
+                    map.put("senderName", r.getName());
+                    map.put("senderImage", r.getImageUrl() != null ? r.getImageUrl() : "");
+                    map.put("senderTitle", r.getTitle());
+                    map.put("createdAt", f.getCreatedAt().toString());
+                    return map;
+                }).collect(Collectors.toList());
+    }
+
+    // ── Mutual Friend Recommendations ─────────────────────────────────────────
+    public List<Map<String, Object>> getMutualFriendRecommendations(Long userId, int limit) {
+        List<Object[]> results = friendshipRepository.findMutualFriendRecommendations(userId, limit);
+        List<Map<String, Object>> recommendations = new ArrayList<>();
+
+        for (Object[] row : results) {
+            Long potentialFriendId = ((Number) row[0]).longValue();
+            Long mutualCount = ((Number) row[1]).longValue();
+
+            userRepository.findById(potentialFriendId).ifPresent(u -> {
+                Map<String, Object> map = new LinkedHashMap<>();
+                map.put("id", u.getId());
+                map.put("name", u.getName());
+                map.put("imageUrl", u.getImageUrl() != null ? u.getImageUrl() : "");
+                map.put("level", u.getLevel());
+                map.put("title", u.getTitle());
+                map.put("mutualFriendsCount", mutualCount);
+                recommendations.add(map);
+            });
+        }
+        
+        // Fallback to top users if not enough recommendations (e.g. for new users)
+        if (recommendations.size() < limit) {
+            org.springframework.data.domain.Page<User> topUsers = userRepository.findAllByOrderByPointsDesc(org.springframework.data.domain.PageRequest.of(0, limit + 20));
+            for (User u : topUsers) {
+                if (recommendations.size() >= limit) break;
+                if (u.getId().equals(userId)) continue;
+                
+                // Only add if not already friends and not already in the list
+                if ("NONE".equals(getFriendshipStatus(userId, u.getId()))) {
+                    boolean alreadyAdded = recommendations.stream().anyMatch(m -> m.get("id").equals(u.getId()));
+                    if (!alreadyAdded) {
+                        Map<String, Object> map = new LinkedHashMap<>();
+                        map.put("id", u.getId());
+                        map.put("name", u.getName());
+                        map.put("imageUrl", u.getImageUrl() != null ? u.getImageUrl() : "");
+                        map.put("level", u.getLevel());
+                        map.put("title", u.getTitle());
+                        map.put("mutualFriendsCount", 0L);
+                        recommendations.add(map);
+                    }
+                }
+            }
+        }
+        
+        return recommendations;
+    }
+
+    // ── Search Users ─────────────────────────────────────────────────────────
+    public List<Map<String, Object>> searchUsers(Long currentUserId, String query) {
+        List<User> users = userRepository.searchUsers(query, currentUserId);
+        return users.stream().map(u -> {
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("id", u.getId());
+            map.put("name", u.getName());
+            map.put("imageUrl", u.getImageUrl() != null ? u.getImageUrl() : "");
+            map.put("level", u.getLevel());
+            map.put("title", u.getTitle());
+            map.put("friendshipStatus", getFriendshipStatus(currentUserId, u.getId()));
+            return map;
+        }).collect(Collectors.toList());
+    }
+
+    // ── Get Friends List ──────────────────────────────────────────────────────
+    public List<Map<String, Object>> getFriendsList(Long userId) {
+        return friendshipRepository.findAcceptedFriendships(userId).stream()
+                .map(f -> {
+                    // The friend is the OTHER user in the friendship
+                    User friend = f.getRequester().getId().equals(userId) ? f.getAddressee() : f.getRequester();
+                    Map<String, Object> map = new LinkedHashMap<>();
+                    map.put("id", friend.getId());
+                    map.put("name", friend.getName());
+                    map.put("imageUrl", friend.getImageUrl() != null ? friend.getImageUrl() : "");
+                    map.put("level", friend.getLevel());
+                    map.put("points", friend.getPoints());
+                    map.put("title", friend.getTitle());
+                    map.put("friendshipStatus", "ACCEPTED");
+                    return map;
+                }).collect(Collectors.toList());
     }
 
     // ── Push notification via WebSocket ────────────────────────────────────────

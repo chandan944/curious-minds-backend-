@@ -27,4 +27,7 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
         )
     """)
     List<User> findRecentChatPartners(@Param("userId") Long userId);
+
+    @Query("SELECT COUNT(m) FROM ChatMessage m WHERE m.receiver.id = :userId AND m.status != 'READ'")
+    int countUnreadMessages(@Param("userId") Long userId);
 }

@@ -42,13 +42,18 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
             String email = claims.get("email", String.class);
             String role = claims.get("role", String.class);
-            Long userId = claims.get("userId", Long.class);
+            Object userIdObj = claims.get("userId");
+            Long userId = null;
+            if (userIdObj instanceof Number) {
+                userId = ((Number) userIdObj).longValue();
+            }
 
             if (email == null || userId == null) {
-                System.out.println("❌ Email or userId null in JWT claims!");
+                System.out.println("❌ Email or userId null in JWT claims! (Email: " + email + ", ID: " + userId + ")");
                 filterChain.doFilter(request, response);
                 return;
             }
+
 
             System.out.println("✅ Authenticated user: " + email + " (ID: " + userId + ")");
 

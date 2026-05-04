@@ -36,7 +36,8 @@ public class AuthController {
 
     // Define admin emails here (or move to application.properties)
     private static final List<String> ADMIN_EMAILS = Arrays.asList(
-            "kanchanparajapati4@gmail.com"
+            "kanchanparajapati4@gmail.com",
+            "chandanprajapati6307@gmail.com"
     );
 
     @GetMapping("/health")

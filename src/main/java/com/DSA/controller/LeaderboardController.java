@@ -1,7 +1,5 @@
 package com.DSA.controller;
 
-import com.DSA.auth.JwtService;
-import com.DSA.user.PointTransaction;
 import com.DSA.user.PointTransactionRepository;
 import com.DSA.user.User;
 import com.DSA.user.UserRepository;
@@ -53,25 +51,18 @@ public class LeaderboardController {
     }
 
     // ── Time-windowed Leaderboards ─────────────────────────────────────────────
+    @GetMapping("/month")
+    public ResponseEntity<?> getMonthLeaderboard(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return getWindowedLeaderboard(LocalDateTime.now().minusMonths(1), page, size);
+    }
+
     @GetMapping("/week")
     public ResponseEntity<?> getWeekLeaderboard(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         return getWindowedLeaderboard(LocalDateTime.now().minusWeeks(1), page, size);
-    }
-
-    @GetMapping("/day")
-    public ResponseEntity<?> getDayLeaderboard(
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
-        return getWindowedLeaderboard(LocalDateTime.now().minusDays(1), page, size);
-    }
-
-    @GetMapping("/hour")
-    public ResponseEntity<?> getHourLeaderboard(
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
-        return getWindowedLeaderboard(LocalDateTime.now().minusHours(1), page, size);
     }
 
     // ── Internal helper ────────────────────────────────────────────────────────

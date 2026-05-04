@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.*;
 import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
+
 
 @RestController
 @RequestMapping("/user")
@@ -33,12 +33,12 @@ public class XpSyncController {
             "lab_complete",    20,
             "dyk_complete",    10,
             "streak_bonus",    25,
-            "topic_complete",  30,
+            "topic_complete",  200,
             "local_earn",      15   // Generic local earn
     );
 
     // Max XP that can be synced in a single request (safety cap)
-    private static final int MAX_SINGLE_SYNC = 100;
+    private static final int MAX_SINGLE_SYNC = 500;
 
     // ──────────────────────────────────────────────────────────────────────────
     //  POST /user/sync-xp
@@ -56,7 +56,11 @@ public class XpSyncController {
             }
             String token = authHeader.substring(7);
             Claims claims = jwtService.extractClaims(token);
-            Long userId = claims.get("userId", Long.class);
+            Object userIdObj = claims.get("userId");
+            Long userId = null;
+            if (userIdObj instanceof Number) {
+                userId = ((Number) userIdObj).longValue();
+            }
 
             if (userId == null) {
                 return ResponseEntity.status(401).body(Map.of("success", false, "message", "Invalid token: no userId"));

@@ -1,7 +1,6 @@
 package com.DSA.social;
 
 import com.DSA.auth.JwtService;
-import com.DSA.user.User;
 import com.DSA.user.UserRepository;
 import io.jsonwebtoken.Claims;
 import lombok.RequiredArgsConstructor;
@@ -195,5 +194,53 @@ public class SocialController {
 
         long count = notificationRepository.countByRecipientIdAndIsReadFalse(myId);
         return ResponseEntity.ok(Map.of("unreadCount", count));
+    }
+
+    // ── 9. Mutual Friend Recommendations ─────────────────────────────────────
+    @GetMapping("/recommendations")
+    public ResponseEntity<?> getRecommendations(
+            @RequestHeader("Authorization") String authHeader,
+            @RequestParam(defaultValue = "10") int limit) {
+
+        Long myId = getUserIdFromToken(authHeader);
+        if (myId == null) return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
+
+        return ResponseEntity.ok(socialService.getMutualFriendRecommendations(myId, limit));
+    }
+
+    // ── 10. Search Users ─────────────────────────────────────────────────────
+    @GetMapping("/search")
+    public ResponseEntity<?> searchUsers(
+            @RequestHeader("Authorization") String authHeader,
+            @RequestParam String q) {
+
+        Long myId = getUserIdFromToken(authHeader);
+        if (myId == null) return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
+
+        if (q.length() < 2) return ResponseEntity.ok(java.util.Collections.emptyList());
+
+        return ResponseEntity.ok(socialService.searchUsers(myId, q));
+    }
+
+    // ── 11. Get Pending Requests ────────────────────────────────────────────
+    @GetMapping("/requests/pending")
+    public ResponseEntity<?> getPendingRequests(
+            @RequestHeader("Authorization") String authHeader) {
+
+        Long myId = getUserIdFromToken(authHeader);
+        if (myId == null) return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
+
+        return ResponseEntity.ok(socialService.getPendingRequests(myId));
+    }
+
+    // ── 12. Get Friends List ────────────────────────────────────────────────
+    @GetMapping("/friends")
+    public ResponseEntity<?> getFriendsList(
+            @RequestHeader("Authorization") String authHeader) {
+
+        Long myId = getUserIdFromToken(authHeader);
+        if (myId == null) return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
+
+        return ResponseEntity.ok(socialService.getFriendsList(myId));
     }
 }

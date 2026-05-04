@@ -31,6 +31,17 @@ public class ChatMessage {
     @Column(nullable = false)
     private LocalDateTime timestamp;
 
+    // ── Reply Feature ──
+    @Column(name = "reply_to_id")
+    private Long replyToId;
+
+    @Column(name = "reply_to_content", length = 500)
+    private String replyToContent;
+
+    @Column(name = "reply_to_sender_name")
+    private String replyToSenderName;
+
+    @Builder.Default
     @Column(nullable = false)
     private String status = "DELIVERED";
 }

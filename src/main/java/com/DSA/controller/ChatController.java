@@ -25,6 +25,7 @@ public class ChatController {
     private final ChatMessageRepository chatMessageRepository;
     private final UserRepository userRepository;
     private final JwtService jwtService;
+    private final com.DSA.config.ChatWebSocketHandler chatWebSocketHandler;
 
     // Helper to get User ID from JWT
     private Long getUserIdFromToken(String authHeader) {
@@ -42,16 +43,23 @@ public class ChatController {
         
         Page<ChatMessage> result = chatMessageRepository.findByReceiverIsNullOrderByTimestampDesc(PageRequest.of(page, size));
         
-        List<Map<String, Object>> messages = result.getContent().stream().map(msg -> Map.<String, Object>of(
-                "id", msg.getId(),
-                "senderId", msg.getSender().getId(),
-                "senderName", msg.getSender().getName(),
-                "senderImage", msg.getSender().getImageUrl() != null ? msg.getSender().getImageUrl() : "",
-                "target", "GLOBAL",
-                "content", msg.getContent(),
-                "timestamp", msg.getTimestamp().toString(),
-                "status", msg.getStatus()
-        )).collect(Collectors.toList());
+        List<Map<String, Object>> messages = result.getContent().stream().map(msg -> {
+            Map<String, Object> map = new java.util.HashMap<>();
+            map.put("id", msg.getId());
+            map.put("senderId", msg.getSender().getId());
+            map.put("senderName", msg.getSender().getName());
+            map.put("senderImage", msg.getSender().getImageUrl() != null ? msg.getSender().getImageUrl() : "");
+            map.put("target", "GLOBAL");
+            map.put("content", msg.getContent());
+            map.put("timestamp", msg.getTimestamp().toString());
+            map.put("status", msg.getStatus());
+            if (msg.getReplyToId() != null) {
+                map.put("replyToId", msg.getReplyToId());
+                map.put("replyToContent", msg.getReplyToContent());
+                map.put("replyToSenderName", msg.getReplyToSenderName());
+            }
+            return map;
+        }).collect(Collectors.toList());
 
         return ResponseEntity.ok(Map.of(
                 "content", messages,
@@ -73,16 +81,23 @@ public class ChatController {
 
         Page<ChatMessage> result = chatMessageRepository.findDirectMessages(myId, targetId, PageRequest.of(page, size));
 
-        List<Map<String, Object>> messages = result.getContent().stream().map(msg -> Map.<String, Object>of(
-                "id", msg.getId(),
-                "senderId", msg.getSender().getId(),
-                "senderName", msg.getSender().getName(),
-                "senderImage", msg.getSender().getImageUrl() != null ? msg.getSender().getImageUrl() : "",
-                "target", targetId.toString(),
-                "content", msg.getContent(),
-                "timestamp", msg.getTimestamp().toString(),
-                "status", msg.getStatus()
-        )).collect(Collectors.toList());
+        List<Map<String, Object>> messages = result.getContent().stream().map(msg -> {
+            Map<String, Object> map = new java.util.HashMap<>();
+            map.put("id", msg.getId());
+            map.put("senderId", msg.getSender().getId());
+            map.put("senderName", msg.getSender().getName());
+            map.put("senderImage", msg.getSender().getImageUrl() != null ? msg.getSender().getImageUrl() : "");
+            map.put("target", targetId.toString());
+            map.put("content", msg.getContent());
+            map.put("timestamp", msg.getTimestamp().toString());
+            map.put("status", msg.getStatus());
+            if (msg.getReplyToId() != null) {
+                map.put("replyToId", msg.getReplyToId());
+                map.put("replyToContent", msg.getReplyToContent());
+                map.put("replyToSenderName", msg.getReplyToSenderName());
+            }
+            return map;
+        }).collect(Collectors.toList());
 
         return ResponseEntity.ok(Map.of(
                 "content", messages,
@@ -126,5 +141,20 @@ public class ChatController {
                         "title", u.getTitle()
                 )))
                 .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    // ── 5. Fetch Online Status ──────────────────────────────────────────
+    @GetMapping("/online/{userId}")
+    public ResponseEntity<Boolean> isUserOnline(@PathVariable Long userId) {
+        return ResponseEntity.ok(chatWebSocketHandler.isUserOnline(userId));
+    }
+
+    // ── 6. Fetch Unread Chat Messages Count ──────────────────────────────────
+    @GetMapping("/unread-count")
+    public ResponseEntity<Map<String, Integer>> getUnreadChatCount(@RequestHeader("Authorization") String authHeader) {
+        Long myId = getUserIdFromToken(authHeader);
+        if (myId == null) return ResponseEntity.status(401).build();
+        int count = chatMessageRepository.countUnreadMessages(myId);
+        return ResponseEntity.ok(Map.of("unreadCount", count));
     }
 }

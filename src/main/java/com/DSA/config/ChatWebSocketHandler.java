@@ -84,6 +84,12 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                 chatMsg.setContent(content);
                 chatMsg.setTimestamp(LocalDateTime.now());
 
+                if (payload.has("replyToId") && !payload.get("replyToId").isJsonNull()) {
+                    chatMsg.setReplyToId(payload.get("replyToId").getAsLong());
+                    chatMsg.setReplyToContent(payload.has("replyToContent") ? payload.get("replyToContent").getAsString() : null);
+                    chatMsg.setReplyToSenderName(payload.has("replyToSenderName") ? payload.get("replyToSenderName").getAsString() : null);
+                }
+
                 User receiver = null;
                 if (!"GLOBAL".equals(target)) {
                     receiver = userRepository.findById(Long.parseLong(target)).orElse(null);
@@ -105,6 +111,12 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                 msgNode.addProperty("timestamp", chatMsg.getTimestamp().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
                 msgNode.addProperty("status", chatMsg.getStatus());
 
+                if (chatMsg.getReplyToId() != null) {
+                    msgNode.addProperty("replyToId", chatMsg.getReplyToId());
+                    msgNode.addProperty("replyToContent", chatMsg.getReplyToContent());
+                    msgNode.addProperty("replyToSenderName", chatMsg.getReplyToSenderName());
+                }
+
                 TextMessage textMessage = new TextMessage(msgNode.toString());
 
                 // Broadcast Logic
@@ -117,9 +129,11 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                     // Send to sender
                     if (session.isOpen()) session.sendMessage(textMessage);
                     // Send to receiver if they are online
-                    for (Map.Entry<WebSocketSession, Long> entry : sessionUserMap.entrySet()) {
-                        if (entry.getValue().equals(receiver.getId()) && entry.getKey().isOpen() && !entry.getKey().getId().equals(session.getId())) {
-                            entry.getKey().sendMessage(textMessage);
+                    if (receiver != null) {
+                        for (Map.Entry<WebSocketSession, Long> entry : sessionUserMap.entrySet()) {
+                            if (entry.getValue().equals(receiver.getId()) && entry.getKey().isOpen() && !entry.getKey().getId().equals(session.getId())) {
+                                entry.getKey().sendMessage(textMessage);
+                            }
                         }
                     }
                 }
@@ -167,5 +181,9 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                 }
             }
         }
+    }
+
+    public boolean isUserOnline(Long userId) {
+        return sessionUserMap.containsValue(userId);
     }
 }
