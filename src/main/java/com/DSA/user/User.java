@@ -1,13 +1,8 @@
 package com.DSA.user;
 
-import jakarta.persistence.*;
 import lombok.*;
-import java.time.LocalDateTime;
+import java.time.Instant;
 
-@Entity
-@Table(name = "users", indexes = {
-    @Index(name = "idx_user_points", columnList = "points DESC")
-})
 @Getter
 @Setter
 @NoArgsConstructor
@@ -15,35 +10,36 @@ import java.time.LocalDateTime;
 @Builder
 public class User {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
-
-    @Column(nullable = false)
     private String name;
-
-    @Column(nullable = false, unique = true)
     private String email;
-
     private String imageUrl;
-
-    @Enumerated(EnumType.STRING)
+    private String bio;
     private Role role;
 
     // Gamification fields
-    @Column(nullable = false, columnDefinition = "int default 0")
-    private int streak;
+    @Builder.Default
+    private int streak = 0;
 
-    @Column(nullable = false, columnDefinition = "int default 1")
-    private int level;
+    @Builder.Default
+    private int level = 1;
 
-    @Column(nullable = false, columnDefinition = "int default 0")
-    private int points;
+    @Builder.Default
+    private int points = 0;
 
-    @Column(nullable = false, columnDefinition = "varchar(255) default 'Curious Kid'")
-    private String title;
+    @Builder.Default
+    private String title = "Curious Kid";
 
-    // Tracks when the user last earned any XP (used for hour/day/week leaderboard windows)
-    @Column
-    private LocalDateTime lastPointsEarnedAt;
+    @Builder.Default
+    private boolean isPrivateProfile = false;
+
+    private Instant lastPointsEarnedAt;
+    private String expoPushToken;
+
+    @Builder.Default
+    private boolean isPremium = false;
+
+    public String getIdString() {
+        return id != null ? String.valueOf(id) : null;
+    }
 }

@@ -10,7 +10,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
 
@@ -131,7 +131,7 @@ public class XpSyncController {
             int newTotal = user.getPoints() + pointsToAdd;
             user.setPoints(newTotal);
             user.setStreak(newStreak);
-            user.setLastPointsEarnedAt(LocalDateTime.now());
+            user.setLastPointsEarnedAt(Instant.now());
 
             // Recalculate level & title server-side
             String[] titles = {"Curious Kid", "Explorer", "Thinker", "Investigator",
@@ -155,7 +155,7 @@ public class XpSyncController {
                     PointTransaction.builder()
                             .user(user)
                             .amount(pointsToAdd)
-                            .earnedAt(LocalDateTime.now())
+                            .earnedAt(Instant.now())
                             .reason(reason)
                             .build()
             );

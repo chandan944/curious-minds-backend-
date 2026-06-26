@@ -1,14 +1,16 @@
 package com.DSA.social;
 
 import com.DSA.config.ChatWebSocketHandler;
+import com.DSA.common.ExpoNotificationService;
 import com.DSA.user.User;
 import com.DSA.user.UserRepository;
 import com.google.gson.JsonObject;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.cache.annotation.Cacheable;
 
-import java.time.format.DateTimeFormatter;
+
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -21,6 +23,7 @@ public class SocialService {
     private final NotificationRepository notificationRepository;
     private final UserRepository userRepository;
     private final ChatWebSocketHandler chatWebSocketHandler;
+    private final ExpoNotificationService expoNotificationService;
 
     // ── Like / Unlike ─────────────────────────────────────────────────────────
     @Transactional
@@ -178,7 +181,9 @@ public class SocialService {
                     User r = f.getRequester();
                     Map<String, Object> map = new LinkedHashMap<>();
                     map.put("friendshipId", f.getId());
+                    map.put("friendshipIdString", String.valueOf(f.getId()));
                     map.put("senderId", r.getId());
+                    map.put("senderIdString", r.getIdString());
                     map.put("senderName", r.getName());
                     map.put("senderImage", r.getImageUrl() != null ? r.getImageUrl() : "");
                     map.put("senderTitle", r.getTitle());
@@ -187,45 +192,91 @@ public class SocialService {
                 }).collect(Collectors.toList());
     }
 
+    // ── Get Cached Social Profile ─────────────────────────────────────────────
+    @Cacheable(value = "user_profiles", key = "#targetUserId + '_' + #myId")
+    public Map<String, Object> getCachedSocialProfile(Long targetUserId, Long myId) {
+        return userRepository.findById(targetUserId).map(u -> {
+            Map<String, Object> profile = new LinkedHashMap<>();
+            profile.put("id", u.getId());
+            profile.put("idString", u.getIdString());
+            profile.put("name", u.getName());
+            profile.put("imageUrl", u.getImageUrl() != null ? u.getImageUrl() : "");
+            profile.put("level", u.getLevel());
+            profile.put("points", u.getPoints());
+            profile.put("streak", u.getStreak());
+            profile.put("title", u.getTitle());
+            profile.put("bio", u.getBio() != null ? u.getBio() : "");
+            profile.put("likeCount", getLikeCount(targetUserId));
+            profile.put("friendCount", getFriendCount(targetUserId));
+            profile.put("isLikedByMe", hasLiked(myId, targetUserId));
+            profile.put("friendshipStatus", getFriendshipStatus(myId, targetUserId));
+            profile.put("isPrivateProfile", u.isPrivateProfile());
+            return profile;
+        }).orElse(null);
+    }
+
     // ── Mutual Friend Recommendations ─────────────────────────────────────────
-    public List<Map<String, Object>> getMutualFriendRecommendations(Long userId, int limit) {
-        List<Object[]> results = friendshipRepository.findMutualFriendRecommendations(userId, limit);
+    @Cacheable(value = "recommendations", key = "#userId + '_' + #page + '_' + #size")
+    public List<Map<String, Object>> getMutualFriendRecommendations(Long userId, int page, int size) {
+        int offset = page * size;
+        List<Object[]> results = friendshipRepository.findMutualFriendRecommendations(userId, size, offset);
         List<Map<String, Object>> recommendations = new ArrayList<>();
 
         for (Object[] row : results) {
             Long potentialFriendId = ((Number) row[0]).longValue();
             Long mutualCount = ((Number) row[1]).longValue();
+            Integer connectionDegree = ((Number) row[2]).intValue();
 
             userRepository.findById(potentialFriendId).ifPresent(u -> {
                 Map<String, Object> map = new LinkedHashMap<>();
                 map.put("id", u.getId());
+                map.put("idString", u.getIdString());
                 map.put("name", u.getName());
                 map.put("imageUrl", u.getImageUrl() != null ? u.getImageUrl() : "");
                 map.put("level", u.getLevel());
                 map.put("title", u.getTitle());
                 map.put("mutualFriendsCount", mutualCount);
+                map.put("connectionDegree", connectionDegree);
+
+                // Populate profile metrics directly to eliminate N+1 queries
+                map.put("points", u.getPoints());
+                map.put("likeCount", getLikeCount(u.getId()));
+                map.put("friendCount", getFriendCount(u.getId()));
+                map.put("isLikedByMe", hasLiked(userId, u.getId()));
+                map.put("friendshipStatus", getFriendshipStatus(userId, u.getId()));
+
                 recommendations.add(map);
             });
         }
         
         // Fallback to top users if not enough recommendations (e.g. for new users)
-        if (recommendations.size() < limit) {
-            org.springframework.data.domain.Page<User> topUsers = userRepository.findAllByOrderByPointsDesc(org.springframework.data.domain.PageRequest.of(0, limit + 20));
+        if (recommendations.size() < size) {
+            org.springframework.data.domain.Page<User> topUsers = userRepository.findAllByOrderByPointsDesc(org.springframework.data.domain.PageRequest.of(page, size + 20));
             for (User u : topUsers) {
-                if (recommendations.size() >= limit) break;
+                if (recommendations.size() >= size) break;
                 if (u.getId().equals(userId)) continue;
                 
                 // Only add if not already friends and not already in the list
-                if ("NONE".equals(getFriendshipStatus(userId, u.getId()))) {
+                String friendshipStatus = getFriendshipStatus(userId, u.getId());
+                if ("NONE".equals(friendshipStatus)) {
                     boolean alreadyAdded = recommendations.stream().anyMatch(m -> m.get("id").equals(u.getId()));
                     if (!alreadyAdded) {
                         Map<String, Object> map = new LinkedHashMap<>();
                         map.put("id", u.getId());
+                        map.put("idString", u.getIdString());
                         map.put("name", u.getName());
                         map.put("imageUrl", u.getImageUrl() != null ? u.getImageUrl() : "");
                         map.put("level", u.getLevel());
                         map.put("title", u.getTitle());
                         map.put("mutualFriendsCount", 0L);
+
+                        // Populate profile metrics directly to eliminate N+1 queries
+                        map.put("points", u.getPoints());
+                        map.put("likeCount", getLikeCount(u.getId()));
+                        map.put("friendCount", getFriendCount(u.getId()));
+                        map.put("isLikedByMe", hasLiked(userId, u.getId()));
+                        map.put("friendshipStatus", friendshipStatus);
+
                         recommendations.add(map);
                     }
                 }
@@ -236,11 +287,16 @@ public class SocialService {
     }
 
     // ── Search Users ─────────────────────────────────────────────────────────
-    public List<Map<String, Object>> searchUsers(Long currentUserId, String query) {
-        List<User> users = userRepository.searchUsers(query, currentUserId);
-        return users.stream().map(u -> {
+    public List<Map<String, Object>> searchUsers(Long currentUserId, String query, int page, int size) {
+        String exactQuery = query.toLowerCase().trim();
+        String likeQuery = "%" + exactQuery.replaceAll("\\s+", "%") + "%";
+        String fuzzyPattern = "%" + String.join("%", exactQuery.replaceAll("\\s+", "").split("")) + "%";
+        
+        org.springframework.data.domain.Page<User> users = userRepository.fuzzySearchUsers(exactQuery, likeQuery, fuzzyPattern, currentUserId, org.springframework.data.domain.PageRequest.of(page, size));
+        return users.getContent().stream().map(u -> {
             Map<String, Object> map = new LinkedHashMap<>();
             map.put("id", u.getId());
+            map.put("idString", u.getIdString());
             map.put("name", u.getName());
             map.put("imageUrl", u.getImageUrl() != null ? u.getImageUrl() : "");
             map.put("level", u.getLevel());
@@ -251,13 +307,14 @@ public class SocialService {
     }
 
     // ── Get Friends List ──────────────────────────────────────────────────────
-    public List<Map<String, Object>> getFriendsList(Long userId) {
-        return friendshipRepository.findAcceptedFriendships(userId).stream()
+    public List<Map<String, Object>> getFriendsList(Long userId, int page, int size) {
+        return friendshipRepository.findAcceptedFriendships(userId, org.springframework.data.domain.PageRequest.of(page, size)).getContent().stream()
                 .map(f -> {
                     // The friend is the OTHER user in the friendship
                     User friend = f.getRequester().getId().equals(userId) ? f.getAddressee() : f.getRequester();
                     Map<String, Object> map = new LinkedHashMap<>();
                     map.put("id", friend.getId());
+                    map.put("idString", friend.getIdString());
                     map.put("name", friend.getName());
                     map.put("imageUrl", friend.getImageUrl() != null ? friend.getImageUrl() : "");
                     map.put("level", friend.getLevel());
@@ -280,9 +337,26 @@ public class SocialService {
             payload.addProperty("senderImage", notif.getSenderImage() != null ? notif.getSenderImage() : "");
             payload.addProperty("message", notif.getMessage());
             payload.addProperty("isRead", notif.isRead());
-            payload.addProperty("createdAt", notif.getCreatedAt().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
+            payload.addProperty("createdAt", notif.getCreatedAt().toString());
 
             chatWebSocketHandler.sendToUser(notif.getRecipient().getId(), payload);
+            
+            // Send Expo Push Notification
+            User recipient = notif.getRecipient();
+            if (recipient.getExpoPushToken() != null && !recipient.getExpoPushToken().isEmpty()) {
+                java.util.Map<String, Object> data = new java.util.HashMap<>();
+                data.put("type", "NOTIFICATION");
+                data.put("notifType", notif.getType().name());
+                data.put("senderId", notif.getSenderId());
+                data.put("notificationId", notif.getId());
+                
+                expoNotificationService.sendPushNotification(
+                    recipient.getExpoPushToken(),
+                    "Curious Minds",
+                    notif.getMessage(),
+                    data
+                );
+            }
         } catch (Exception e) {
             System.err.println("⚠️ Failed to push notification: " + e.getMessage());
         }

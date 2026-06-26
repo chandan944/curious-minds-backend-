@@ -9,11 +9,12 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.springframework.cache.annotation.Cacheable;
 
 @RestController
 @RequestMapping("/leaderboard")
@@ -26,6 +27,7 @@ public class LeaderboardController {
 
     // ── All-Time Leaderboard ───────────────────────────────────────────────────
     @GetMapping("/all")
+    @Cacheable(value = "leaderboard_all", key = "#page + '_' + #size")
     public ResponseEntity<?> getAllTimeLeaderboard(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
@@ -35,6 +37,7 @@ public class LeaderboardController {
                 .map(u -> Map.<String, Object>of(
                         "rank", rankOffset.getAndIncrement(),
                         "id", u.getId(),
+                        "idString", u.getIdString(),
                         "name", u.getName(),
                         "imageUrl", u.getImageUrl() != null ? u.getImageUrl() : "",
                         "level", u.getLevel(),
@@ -52,21 +55,23 @@ public class LeaderboardController {
 
     // ── Time-windowed Leaderboards ─────────────────────────────────────────────
     @GetMapping("/month")
+    @Cacheable(value = "leaderboard_month", key = "#page + '_' + #size")
     public ResponseEntity<?> getMonthLeaderboard(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return getWindowedLeaderboard(LocalDateTime.now().minusMonths(1), page, size);
+        return getWindowedLeaderboard(Instant.now().minus(30, java.time.temporal.ChronoUnit.DAYS), page, size);
     }
 
     @GetMapping("/week")
+    @Cacheable(value = "leaderboard_week", key = "#page + '_' + #size")
     public ResponseEntity<?> getWeekLeaderboard(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return getWindowedLeaderboard(LocalDateTime.now().minusWeeks(1), page, size);
+        return getWindowedLeaderboard(Instant.now().minus(7, java.time.temporal.ChronoUnit.DAYS), page, size);
     }
 
     // ── Internal helper ────────────────────────────────────────────────────────
-    private ResponseEntity<?> getWindowedLeaderboard(LocalDateTime from, int page, int size) {
+    private ResponseEntity<?> getWindowedLeaderboard(Instant from, int page, int size) {
         Page<Object[]> result = pointTransactionRepository.findTopUsersByPointsSince(
                 from, PageRequest.of(page, size));
 
@@ -75,6 +80,7 @@ public class LeaderboardController {
                 .map(row -> Map.<String, Object>of(
                         "rank", rankOffset.getAndIncrement(),
                         "id", row[0],
+                        "idString", row[0] != null ? String.valueOf(row[0]) : "",
                         "name", row[1] != null ? row[1] : "",
                         "imageUrl", row[2] != null ? row[2] : "",
                         "level", row[3] != null ? row[3] : 1,

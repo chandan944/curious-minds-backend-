@@ -13,6 +13,14 @@ public class AppConfig {
         return new RestTemplate();
     }
 
+    @Bean
+    public RestTemplate pdfProxyRestTemplate() {
+        var factory = new org.springframework.http.client.SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(15000);  // 15s connect
+        factory.setReadTimeout(60000);     // 60s read (PDFs can be large)
+        return new RestTemplate(factory);
+    }
+
     @Configuration
     public static class CorsConfig implements WebMvcConfigurer {
 

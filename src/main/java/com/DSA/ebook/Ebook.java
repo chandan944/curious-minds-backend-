@@ -1,11 +1,8 @@
 package com.DSA.ebook;
 
-import jakarta.persistence.*;
 import lombok.*;
-import java.time.LocalDateTime;
+import java.time.Instant;
 
-@Entity
-@Table(name = "ebooks")
 @Getter
 @Setter
 @NoArgsConstructor
@@ -13,26 +10,17 @@ import java.time.LocalDateTime;
 @Builder
 public class Ebook {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
-
-    @Column
     private String title;
-
-    @Column(nullable = false)
-    private String fileUrl;
-
-    @Column(columnDefinition = "TEXT")
+    private String englishFileUrl;
+    private String hindiFileUrl;
     private String description;
-
-    @Column(name = "cover_image_url")
     private String coverImageUrl;
-
-    @Column(nullable = false)
     private String uploaderEmail;
+    private Instant uploadedAt;
 
-
-    @Column(nullable = false)
-    private LocalDateTime uploadedAt;
+    // Zero-dependency helper to prevent JavaScript integer precision loss
+    public String getIdString() {
+        return id != null ? String.valueOf(id) : null;
+    }
 }

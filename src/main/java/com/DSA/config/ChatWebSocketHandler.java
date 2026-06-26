@@ -5,6 +5,9 @@ import com.DSA.user.ChatMessage;
 import com.DSA.user.ChatMessageRepository;
 import com.DSA.user.User;
 import com.DSA.user.UserRepository;
+import com.DSA.common.ExpoNotificationService;
+import com.DSA.social.FriendshipRepository;
+import com.DSA.social.FriendshipStatus;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import io.jsonwebtoken.Claims;
@@ -15,8 +18,8 @@ import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
+import java.time.Instant;
+
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -27,6 +30,8 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     private final JwtService jwtService;
     private final UserRepository userRepository;
     private final ChatMessageRepository chatMessageRepository;
+    private final ExpoNotificationService expoNotificationService;
+    private final FriendshipRepository friendshipRepository;
     private final Gson gson = new Gson();
 
     // Mapping from WebSocketSession to User ID
@@ -82,7 +87,26 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                 ChatMessage chatMsg = new ChatMessage();
                 chatMsg.setSender(sender);
                 chatMsg.setContent(content);
-                chatMsg.setTimestamp(LocalDateTime.now());
+
+                // Extract client-generated messageId if present
+                if (payload.has("messageId") && !payload.get("messageId").isJsonNull()) {
+                    chatMsg.setMessageId(payload.get("messageId").getAsString());
+                }
+
+                // Extract client-generated timestamp if present
+                Instant timestamp = Instant.now();
+                if (payload.has("timestamp") && !payload.get("timestamp").isJsonNull()) {
+                    try {
+                        timestamp = Instant.ofEpochMilli(payload.get("timestamp").getAsLong());
+                    } catch (Exception e) {
+                        try {
+                            timestamp = Instant.parse(payload.get("timestamp").getAsString());
+                        } catch (Exception ex) {
+                            timestamp = Instant.now();
+                        }
+                    }
+                }
+                chatMsg.setTimestamp(timestamp);
 
                 if (payload.has("replyToId") && !payload.get("replyToId").isJsonNull()) {
                     chatMsg.setReplyToId(payload.get("replyToId").getAsLong());
@@ -93,22 +117,55 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                 User receiver = null;
                 if (!"GLOBAL".equals(target)) {
                     receiver = userRepository.findById(Long.parseLong(target)).orElse(null);
-                    chatMsg.setReceiver(receiver);
+                    
+                    if (receiver != null) {
+                        // Check privacy setting
+                        if (receiver.isPrivateProfile()) {
+                            // Are they friends?
+                            boolean isFriend = friendshipRepository.findBetweenUsers(sender.getId(), receiver.getId())
+                                .map(f -> f.getStatus() == FriendshipStatus.ACCEPTED)
+                                .orElse(false);
+                            
+                            // Let Admins bypass this, or if it's not a friend, block it.
+                            if (!isFriend && !sender.getRole().name().equals("ADMIN")) {
+                                JsonObject errorNode = new JsonObject();
+                                errorNode.addProperty("type", "MESSAGE_ERROR");
+                                errorNode.addProperty("message", "This user's profile is private. You must be friends to send them a message.");
+                                session.sendMessage(new TextMessage(errorNode.toString()));
+                                return; // Stop processing, don't save or forward.
+                            }
+                        }
+                        chatMsg.setReceiver(receiver);
+                    }
                 }
 
                 // Save to DB
                 chatMessageRepository.save(chatMsg);
 
+                // Send DELIVERED confirmation ACK back to sender immediately for 1:1 chats
+                if (!"GLOBAL".equals(target) && chatMsg.getMessageId() != null) {
+                    JsonObject deliveredAck = new JsonObject();
+                    deliveredAck.addProperty("type", "DELIVERED");
+                    deliveredAck.addProperty("messageId", chatMsg.getMessageId());
+                    if (session.isOpen()) {
+                        session.sendMessage(new TextMessage(deliveredAck.toString()));
+                    }
+                }
+
                 // Format response
                 JsonObject msgNode = new JsonObject();
                 msgNode.addProperty("type", "MESSAGE");
                 msgNode.addProperty("id", chatMsg.getId());
+                if (chatMsg.getMessageId() != null) {
+                    msgNode.addProperty("messageId", chatMsg.getMessageId());
+                }
                 msgNode.addProperty("senderId", sender.getId());
+                msgNode.addProperty("senderIdString", sender.getIdString());
                 msgNode.addProperty("senderName", sender.getName());
                 msgNode.addProperty("senderImage", sender.getImageUrl());
                 msgNode.addProperty("target", target);
                 msgNode.addProperty("content", content);
-                msgNode.addProperty("timestamp", chatMsg.getTimestamp().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
+                msgNode.addProperty("timestamp", chatMsg.getTimestamp().toString());
                 msgNode.addProperty("status", chatMsg.getStatus());
 
                 if (chatMsg.getReplyToId() != null) {
@@ -129,11 +186,29 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                     // Send to sender
                     if (session.isOpen()) session.sendMessage(textMessage);
                     // Send to receiver if they are online
+                    boolean receiverIsOnline = false;
                     if (receiver != null) {
                         for (Map.Entry<WebSocketSession, Long> entry : sessionUserMap.entrySet()) {
                             if (entry.getValue().equals(receiver.getId()) && entry.getKey().isOpen() && !entry.getKey().getId().equals(session.getId())) {
                                 entry.getKey().sendMessage(textMessage);
+                                receiverIsOnline = true;
                             }
+                        }
+                        
+                        // Send Push Notification if receiver is not online (or always, depending on preference)
+                        if (!receiverIsOnline && receiver.getExpoPushToken() != null && !receiver.getExpoPushToken().isEmpty()) {
+                            Map<String, Object> data = new java.util.HashMap<>();
+                            data.put("type", "CHAT_MESSAGE");
+                            data.put("senderId", sender.getId());
+                            data.put("senderIdString", sender.getIdString());
+                            data.put("messageId", chatMsg.getMessageId() != null ? chatMsg.getMessageId() : chatMsg.getId().toString());
+                            
+                            expoNotificationService.sendPushNotification(
+                                receiver.getExpoPushToken(),
+                                sender.getName(),
+                                content,
+                                data
+                            );
                         }
                     }
                 }
@@ -141,24 +216,37 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
 
             // ── 3. Handle Mark as Read ──────────────────────────────────────────────
             if ("MARK_READ".equals(type)) {
-                Long messageId = payload.get("messageId").getAsLong();
-                ChatMessage chatMsg = chatMessageRepository.findById(messageId).orElse(null);
-                
-                if (chatMsg != null && !"READ".equals(chatMsg.getStatus())) {
-                    chatMsg.setStatus("READ");
-                    chatMessageRepository.save(chatMsg);
-                    
-                    // Broadcast READ_RECEIPT to the original sender
-                    JsonObject receiptNode = new JsonObject();
-                    receiptNode.addProperty("type", "READ_RECEIPT");
-                    receiptNode.addProperty("messageId", messageId);
-                    receiptNode.addProperty("readerId", senderId); // The person who read it
-                    
-                    TextMessage receiptMsg = new TextMessage(receiptNode.toString());
-                    
-                    for (Map.Entry<WebSocketSession, Long> entry : sessionUserMap.entrySet()) {
-                        if (entry.getValue().equals(chatMsg.getSender().getId()) && entry.getKey().isOpen()) {
-                            entry.getKey().sendMessage(receiptMsg);
+                String msgIdStr = payload.has("messageId") && !payload.get("messageId").isJsonNull()
+                    ? payload.get("messageId").getAsString() : null;
+
+                if (msgIdStr != null) {
+                    ChatMessage chatMsg = chatMessageRepository.findByMessageId(msgIdStr).orElse(null);
+
+                    if (chatMsg == null) {
+                        try {
+                            Long id = Long.parseLong(msgIdStr);
+                            chatMsg = chatMessageRepository.findById(id).orElse(null);
+                        } catch (NumberFormatException e) {
+                            // Ignored
+                        }
+                    }
+
+                    if (chatMsg != null && !"READ".equals(chatMsg.getStatus())) {
+                        chatMsg.setStatus("READ");
+                        chatMessageRepository.save(chatMsg);
+
+                        // Broadcast READ_RECEIPT to the original sender
+                        JsonObject receiptNode = new JsonObject();
+                        receiptNode.addProperty("type", "READ_RECEIPT");
+                        receiptNode.addProperty("messageId", chatMsg.getMessageId() != null ? chatMsg.getMessageId() : chatMsg.getId().toString());
+                        receiptNode.addProperty("readerId", senderId); // The person who read it
+
+                        TextMessage receiptMsg = new TextMessage(receiptNode.toString());
+
+                        for (Map.Entry<WebSocketSession, Long> entry : sessionUserMap.entrySet()) {
+                            if (entry.getValue().equals(chatMsg.getSender().getId()) && entry.getKey().isOpen()) {
+                                entry.getKey().sendMessage(receiptMsg);
+                            }
                         }
                     }
                 }

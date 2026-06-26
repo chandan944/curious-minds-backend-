@@ -34,6 +34,7 @@ public class SecurityConfig {
                         .requestMatchers("/ws/chat/**").permitAll()
                         .requestMatchers("/chat/profile/**").permitAll()
                         .requestMatchers("/leaderboard/**").permitAll()
+                        .requestMatchers("/api/ebooks/proxy").permitAll()
                         .requestMatchers("/actuator/**").permitAll()
                         .requestMatchers("/api/social/**").authenticated()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")

@@ -1,0 +1,973 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Curious Minds - Resource Usage Dashboard</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📊</text></svg>">
+    <!-- Modern Premium Typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --bg-color: #080b11;
+            --card-bg: rgba(17, 22, 34, 0.75);
+            --card-border: rgba(255, 255, 255, 0.06);
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+            --primary: #00f2fe;
+            --secondary: #4facfe;
+            --accent-green: #10b981;
+            --accent-red: #ef4444;
+            --accent-orange: #f59e0b;
+            --gradient-1: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%);
+            --gradient-green: linear-gradient(135deg, #34d399 0%, #059669 100%);
+            --gradient-orange: linear-gradient(135deg, #fbbf24 0%, #d97706 100%);
+            --shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            min-height: 100vh;
+            padding: 2rem;
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(0, 242, 254, 0.08) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(79, 172, 254, 0.08) 0px, transparent 50%);
+            background-attachment: fixed;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        /* Header Styling */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2.5rem;
+            flex-wrap: wrap;
+            gap: 1.5rem;
+        }
+
+        .logo-section {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .logo-icon {
+            font-size: 2.5rem;
+            background: var(--gradient-1);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            animation: float 4s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-5px); }
+        }
+
+        .logo-text h1 {
+            font-size: 1.8rem;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            background: linear-gradient(to right, #ffffff, #9ca3af);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .logo-text p {
+            font-size: 0.9rem;
+            color: var(--text-muted);
+        }
+
+        .meta-badges {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .badge {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            padding: 0.5rem 1rem;
+            border-radius: 12px;
+            font-size: 0.85rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            box-shadow: var(--shadow);
+            backdrop-filter: blur(10px);
+        }
+
+        .badge .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: var(--accent-green);
+            box-shadow: 0 0 10px var(--accent-green);
+        }
+
+        .badge-primary {
+            background: rgba(0, 242, 254, 0.1);
+            border: 1px solid rgba(0, 242, 254, 0.2);
+            color: var(--primary);
+        }
+
+        /* Toggle/Paste Section */
+        .collapsible-section {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 18px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            backdrop-filter: blur(10px);
+            box-shadow: var(--shadow);
+            transition: all 0.3s ease;
+        }
+
+        .collapsible-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .collapsible-header h3 {
+            font-size: 1.1rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            color: var(--text-main);
+        }
+
+        .btn-toggle {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--card-border);
+            color: var(--text-main);
+            padding: 0.4rem 0.8rem;
+            border-radius: 8px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-toggle:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: var(--primary);
+        }
+
+        .collapsible-content {
+            margin-top: 1.2rem;
+            display: none;
+        }
+
+        .collapsible-content.active {
+            display: block;
+        }
+
+        .json-textarea {
+            width: 100%;
+            height: 160px;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            color: #10b981;
+            font-family: monospace;
+            font-size: 0.85rem;
+            padding: 1rem;
+            resize: vertical;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .json-textarea:focus {
+            border-color: var(--primary);
+        }
+
+        .action-bar {
+            display: flex;
+            justify-content: flex-end;
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .btn-action {
+            padding: 0.6rem 1.5rem;
+            border-radius: 10px;
+            font-weight: 500;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: none;
+        }
+
+        .btn-primary {
+            background: var(--gradient-1);
+            color: #080b11;
+        }
+
+        .btn-primary:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-main);
+            border: 1px solid var(--card-border);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        /* Uptime & System Cards Row */
+        .system-overview {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card-mini {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            padding: 1.5rem;
+            box-shadow: var(--shadow);
+            backdrop-filter: blur(10px);
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .stat-card-mini::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--gradient-1);
+        }
+
+        .stat-card-mini.green::before {
+            background: var(--gradient-green);
+        }
+
+        .stat-card-mini.orange::before {
+            background: var(--gradient-orange);
+        }
+
+        .stat-label {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .stat-value {
+            font-size: 1.6rem;
+            font-weight: 700;
+            margin-top: 0.5rem;
+            background: #ffffff;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .stat-desc {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-top: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+
+        /* Main Dashboard Grid */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 2rem;
+        }
+
+        @media (max-width: 1024px) {
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 24px;
+            padding: 2rem;
+            box-shadow: var(--shadow);
+            backdrop-filter: blur(10px);
+            display: flex;
+            flex-direction: column;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .card:hover {
+            box-shadow: 0 15px 35px -10px rgba(0, 242, 254, 0.05);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 1.5rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            padding-bottom: 1rem;
+        }
+
+        .card-title {
+            font-size: 1.3rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .card-subtitle {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin-top: 0.25rem;
+        }
+
+        .card-icon {
+            font-size: 1.5rem;
+            opacity: 0.8;
+        }
+
+        .chart-container {
+            position: relative;
+            flex-grow: 1;
+            min-height: 280px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Custom Progress bars / List elements */
+        .stats-list {
+            margin-top: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1.2rem;
+        }
+
+        .stats-item {
+            display: flex;
+            flex-direction: column;
+            gap: 0.4rem;
+        }
+
+        .stats-item-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+
+        .stats-item-label {
+            color: var(--text-main);
+        }
+
+        .stats-item-value {
+            color: var(--text-muted);
+        }
+
+        .progress-bar-container {
+            width: 100%;
+            height: 8px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .progress-bar {
+            height: 100%;
+            border-radius: 4px;
+            background: var(--gradient-1);
+            width: 0%;
+            transition: width 1s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        /* Specific styles for cache grid */
+        .cache-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 1rem;
+            margin-top: 1.5rem;
+        }
+
+        .cache-subcard {
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.03);
+            border-radius: 12px;
+            padding: 1rem;
+            text-align: center;
+        }
+
+        .cache-name {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            font-weight: 500;
+            margin-bottom: 0.25rem;
+            word-break: break-all;
+        }
+
+        .cache-hitrate {
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        .cache-details {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 0.25rem;
+        }
+
+        .success-text {
+            color: var(--accent-green);
+        }
+        
+        .warn-text {
+            color: var(--accent-orange);
+        }
+
+        .error-banner {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            color: var(--accent-red);
+            border-radius: 12px;
+            padding: 1rem;
+            margin-bottom: 2rem;
+            font-size: 0.9rem;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header>
+            <div class="logo-section">
+                <div class="logo-icon">📊</div>
+                <div class="logo-text">
+                    <h1>Resource Usage Dashboard</h1>
+                    <p>Real-time Firestore, R2, and Caffeine Metrics</p>
+                </div>
+            </div>
+            <div class="meta-badges">
+                <div class="badge" id="service-status">
+                    <span class="dot"></span>
+                    <span id="service-status-text">Checking System Status...</span>
+                </div>
+                <div class="badge badge-primary" id="backend-version">Version --</div>
+            </div>
+        </header>
+
+        <!-- Error Banner -->
+        <div class="error-banner" id="error-banner"></div>
+
+        <!-- Collapsible Paste JSON Section -->
+        <div class="collapsible-section">
+            <div class="collapsible-header" id="toggle-json-header">
+                <h3><span>📋</span> Manually Input JSON Data / Trigger Refresh</h3>
+                <button class="btn-toggle" id="btn-toggle-view" aria-label="Toggle Input Panel">Expand Panel</button>
+            </div>
+            <div class="collapsible-content" id="json-input-content">
+                <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.75rem;">
+                    The dashboard automatically attempts to fetch real-time stats from <code style="color: var(--primary);">/auth/health</code>. If the server is offline or running on another domain, paste the health JSON payload below to render the charts immediately.
+                </p>
+                <textarea class="json-textarea" id="json-paste-area" placeholder='Paste your health JSON response here...'></textarea>
+                <div class="action-bar">
+                    <button class="btn-action btn-secondary" id="btn-load-sample">Load Snapshot Data</button>
+                    <button class="btn-action btn-primary" id="btn-render-json">Render Visual Charts</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- System Overview Mini Cards -->
+        <div class="system-overview">
+            <div class="stat-card-mini">
+                <span class="stat-label">System Uptime</span>
+                <span class="stat-value" id="sys-uptime">--</span>
+                <span class="stat-desc">🕒 Total JVM process run duration</span>
+            </div>
+            <div class="stat-card-mini green">
+                <span class="stat-label">Caffeine Savings</span>
+                <span class="stat-value text-success" id="caffeine-money-saved" style="background: linear-gradient(to right, #34d399, #059669); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">$0.0000</span>
+                <span class="stat-desc" id="caffeine-reads-saved">🟢 0 total reads saved from Firestore</span>
+            </div>
+            <div class="stat-card-mini orange">
+                <span class="stat-label">JVM Memory Allocated</span>
+                <span class="stat-value" id="sys-memory">0MB / 0MB</span>
+                <span class="stat-desc" id="sys-memory-percentage">🟡 0% of max JVM memory limit</span>
+            </div>
+        </div>
+
+        <!-- Main Grid Charts -->
+        <div class="dashboard-grid">
+            <!-- Firestore Usage -->
+            <div class="card">
+                <div class="card-header">
+                    <div>
+                        <h2 class="card-title"><span>🔥</span> Firestore Daily Operations</h2>
+                        <p class="card-subtitle">Usage in the last 24h against Firebase free tier daily limits</p>
+                    </div>
+                    <span class="card-icon">📁</span>
+                </div>
+                <div class="chart-container">
+                    <canvas id="firestoreChart"></canvas>
+                </div>
+                <div class="stats-list" id="firestore-details-list">
+                    <!-- Progress bars will be injected here -->
+                </div>
+            </div>
+
+            <!-- Cloudflare R2 Usage -->
+            <div class="card">
+                <div class="card-header">
+                    <div>
+                        <h2 class="card-title"><span>⚡</span> Cloudflare R2 Monthly Storage</h2>
+                        <p class="card-subtitle">Class A (Uploads/Writes) & Class B (Reads) operations against limits</p>
+                    </div>
+                    <span class="card-icon">☁️</span>
+                </div>
+                <div class="chart-container">
+                    <canvas id="r2Chart"></canvas>
+                </div>
+                <div class="stats-list" id="r2-details-list">
+                    <!-- Progress bars will be injected here -->
+                </div>
+            </div>
+
+            <!-- Caffeine Cache Health -->
+            <div class="card" style="grid-column: span 2;">
+                <div class="card-header">
+                    <div>
+                        <h2 class="card-title"><span>🧠</span> Caffeine In-Memory Caching</h2>
+                        <p class="card-subtitle">Local Cache Hit Rates and total Firestore reads prevented</p>
+                    </div>
+                    <span class="card-icon">⚡</span>
+                </div>
+                <div class="cache-grid" id="caffeine-cache-grid">
+                    <!-- Cache items will be injected here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Sample default data (matching user's provided payload)
+        const sampleData = {
+            "status": "UP",
+            "timestamp": "2026-06-26T08:01:57.388209400Z",
+            "service": "DSA Backend",
+            "version": "1.0.0",
+            "resourceUsage": {
+                "firestoreUsage": {
+                    "dailyLimits": {
+                        "deletes": 20000,
+                        "reads": 50000,
+                        "writes": 20000
+                    },
+                    "last24Hours": {
+                        "reads": 1,
+                        "readsRemaining": 49999,
+                        "writesRemaining": 20000,
+                        "writes": 0,
+                        "deletes": 0
+                    },
+                    "last7Days": {
+                        "deletes": 0,
+                        "reads": 1,
+                        "writes": 0
+                    },
+                    "last30Days": {
+                        "deletes": 0,
+                        "reads": 1,
+                        "writes": 0
+                    }
+                },
+                "r2Usage": {
+                    "monthlyLimits": {
+                        "classBOperations": 10000000,
+                        "freeStorageGB": 10,
+                        "classAOperations": 1000000
+                    },
+                    "last24Hours": {
+                        "classA": 0,
+                        "classB": 0
+                    },
+                    "last7Days": {
+                        "classA": 0,
+                        "classB": 0
+                    },
+                    "last30Days": {
+                        "classARemaining": 1000000,
+                        "classA": 0,
+                        "classB": 0,
+                        "classBRemaining": 10000000
+                    }
+                },
+                "cacheSavings": {
+                    "totalEstimatedReadsSaved": 0,
+                    "estimatedMoneySaved": "$0.0000",
+                    "caches": {
+                        "leaderboard_all": {
+                            "estimatedReadsSaved": 0,
+                            "hits": 0,
+                            "misses": 0,
+                            "hitRate": "100.00%"
+                        },
+                        "leaderboard_month": {
+                            "estimatedReadsSaved": 0,
+                            "hits": 0,
+                            "misses": 0,
+                            "hitRate": "100.00%"
+                        },
+                        "leaderboard_week": {
+                            "estimatedReadsSaved": 0,
+                            "hits": 0,
+                            "misses": 0,
+                            "hitRate": "100.00%"
+                        },
+                        "user_profiles": {
+                            "estimatedReadsSaved": 0,
+                            "hits": 0,
+                            "misses": 0,
+                            "hitRate": "100.00%"
+                        },
+                        "recommendations": {
+                            "estimatedReadsSaved": 0,
+                            "hits": 0,
+                            "misses": 0,
+                            "hitRate": "100.00%"
+                        }
+                    }
+                },
+                "systemMetrics": {
+                    "uptime": "0 days, 0 hours, 7 minutes, 42 seconds",
+                    "memory": {
+                        "maxMB": 1974,
+                        "usedMB": 52,
+                        "totalMB": 77
+                    }
+                }
+            }
+        };
+
+        // Chart Global Instances
+        let firestoreChartInstance = null;
+        let r2ChartInstance = null;
+
+        // Dom Elements
+        const jsonPasteArea = document.getElementById('json-paste-area');
+        const btnRenderJson = document.getElementById('btn-render-json');
+        const btnLoadSample = document.getElementById('btn-load-sample');
+        const toggleJsonHeader = document.getElementById('toggle-json-header');
+        const jsonInputContent = document.getElementById('json-input-content');
+        const btnToggleView = document.getElementById('btn-toggle-view');
+        const errorBanner = document.getElementById('error-banner');
+
+        // Toggle Expand/Collapse JSON paste area
+        toggleJsonHeader.addEventListener('click', () => {
+            const isActive = jsonInputContent.classList.toggle('active');
+            btnToggleView.textContent = isActive ? 'Collapse Panel' : 'Expand Panel';
+        });
+
+        btnLoadSample.addEventListener('click', () => {
+            jsonPasteArea.value = JSON.stringify(sampleData, null, 2);
+        });
+
+        btnRenderJson.addEventListener('click', () => {
+            try {
+                const text = jsonPasteArea.value.trim();
+                if (!text) throw new Error("Paste something first.");
+                const parsed = JSON.parse(text);
+                renderDashboard(parsed);
+                errorBanner.style.display = 'none';
+                // Collapse after rendering
+                jsonInputContent.classList.remove('active');
+                btnToggleView.textContent = 'Expand Panel';
+            } catch (e) {
+                errorBanner.textContent = "❌ Invalid JSON Structure: " + e.message;
+                errorBanner.style.display = 'block';
+            }
+        });
+
+        // Initialize and try loading from API or Fallback
+        window.addEventListener('DOMContentLoaded', () => {
+            // Attempt to load from same origin /auth/health
+            fetch('/auth/health')
+                .then(res => {
+                    if (!res.ok) throw new Error("Status code " + res.status);
+                    return res.json();
+                })
+                .then(data => {
+                    console.log("📊 Successfully loaded live stats from API.");
+                    renderDashboard(data);
+                })
+                .catch(err => {
+                    console.warn("⚠️ Could not load live API stats (using local preview data):", err.message);
+                    renderDashboard(sampleData);
+                    // Open manual entry panel so user knows they can paste their own
+                    jsonInputContent.classList.add('active');
+                    btnToggleView.textContent = 'Collapse Panel';
+                    jsonPasteArea.value = JSON.stringify(sampleData, null, 2);
+                });
+        });
+
+        function renderDashboard(data) {
+            // Service Badge & Version
+            const serviceStatusText = document.getElementById('service-status-text');
+            const backendVersion = document.getElementById('backend-version');
+            const dot = document.querySelector('#service-status .dot');
+
+            serviceStatusText.textContent = `${data.service || 'DSA Backend'} is ${data.status || 'UP'}`;
+            backendVersion.textContent = `Version ${data.version || '1.0.0'}`;
+            
+            if (data.status === 'UP') {
+                dot.style.backgroundColor = 'var(--accent-green)';
+                dot.style.boxShadow = '0 0 10px var(--accent-green)';
+            } else {
+                dot.style.backgroundColor = 'var(--accent-red)';
+                dot.style.boxShadow = '0 0 10px var(--accent-red)';
+            }
+
+            // Extract Resource Usage
+            const usage = data.resourceUsage;
+            if (!usage) {
+                if (data.resourceUsageError) {
+                    errorBanner.innerHTML = `<strong>⚠️ Firestore Database Not Active Yet:</strong><br>${data.resourceUsageError}<br><br>Please activate the Cloud Firestore database in your Firebase console. Showing placeholder stats in the meantime.`;
+                    errorBanner.style.display = 'block';
+                }
+                return;
+            }
+
+            // Uptime
+            document.getElementById('sys-uptime').textContent = usage.systemMetrics?.uptime || '0 days';
+
+            // Memory Card
+            if (usage.systemMetrics?.memory) {
+                const mem = usage.systemMetrics.memory;
+                document.getElementById('sys-memory').textContent = `${mem.usedMB}MB / ${mem.totalMB}MB`;
+                const percentage = Math.round((mem.usedMB / mem.maxMB) * 100);
+                document.getElementById('sys-memory-percentage').textContent = `🟡 ${percentage}% of ${mem.maxMB}MB JVM Max Limit`;
+            }
+
+            // Cache Savings Card
+            if (usage.cacheSavings) {
+                const cache = usage.cacheSavings;
+                document.getElementById('caffeine-money-saved').textContent = cache.estimatedMoneySaved || '$0.0000';
+                document.getElementById('caffeine-reads-saved').innerHTML = `🟢 <strong>${cache.totalEstimatedReadsSaved || 0}</strong> total reads saved from Firestore`;
+            }
+
+            // 1. Render Firestore Doughnut Chart & List
+            renderFirestore(usage.firestoreUsage);
+
+            // 2. Render R2 Multi-Bar Chart & List
+            renderR2(usage.r2Usage);
+
+            // 3. Render Caffeine Cache Sub-Cards Grid
+            renderCaffeineCaches(usage.cacheSavings?.caches);
+        }
+
+        function renderFirestore(firestoreUsage) {
+            if (!firestoreUsage) return;
+            const daily = firestoreUsage.last24Hours || { reads: 0, writes: 0, deletes: 0 };
+            const limits = firestoreUsage.dailyLimits || { reads: 50000, writes: 20000, deletes: 20000 };
+
+            const ctx = document.getElementById('firestoreChart').getContext('2d');
+            
+            if (firestoreChartInstance) {
+                firestoreChartInstance.destroy();
+            }
+
+            firestoreChartInstance = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Reads Used', 'Writes Used', 'Deletes Used', 'Remaining Pool'],
+                    datasets: [{
+                        data: [
+                            daily.reads, 
+                            daily.writes, 
+                            daily.deletes, 
+                            Math.max(0, (limits.reads + limits.writes + limits.deletes) - (daily.reads + daily.writes + daily.deletes))
+                        ],
+                        backgroundColor: [
+                            '#00f2fe',
+                            '#4facfe',
+                            '#f59e0b',
+                            'rgba(255, 255, 255, 0.05)'
+                        ],
+                        borderWidth: 1,
+                        borderColor: 'rgba(255, 255, 255, 0.1)'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                color: '#9ca3af',
+                                font: { family: 'Outfit', size: 12 }
+                            }
+                        }
+                    },
+                    cutout: '70%'
+                }
+            });
+
+            // Populate List Details & Progress Bars
+            const detailsList = document.getElementById('firestore-details-list');
+            detailsList.innerHTML = '';
+
+            const items = [
+                { label: 'Firestore Reads', current: daily.reads, max: limits.reads, color: '#00f2fe' },
+                { label: 'Firestore Writes', current: daily.writes, max: limits.writes, color: '#4facfe' },
+                { label: 'Firestore Deletes', current: daily.deletes, max: limits.deletes, color: '#f59e0b' }
+            ];
+
+            items.forEach(item => {
+                const pct = ((item.current / item.max) * 100).toFixed(4);
+                const itemHtml = `
+                    <div class="stats-item">
+                        <div class="stats-item-header">
+                            <span class="stats-item-label">${item.label}</span>
+                            <span class="stats-item-value">${item.current.toLocaleString()} / ${item.max.toLocaleString()} (${pct}%)</span>
+                        </div>
+                        <div class="progress-bar-container">
+                            <div class="progress-bar" style="width: ${Math.max(1, Math.min(100, pct))}%; background: ${item.color}"></div>
+                        </div>
+                    </div>
+                `;
+                detailsList.innerHTML += itemHtml;
+            });
+        }
+
+        function renderR2(r2Usage) {
+            if (!r2Usage) return;
+            const last30 = r2Usage.last30Days || { classA: 0, classB: 0 };
+            const limits = r2Usage.monthlyLimits || { classAOperations: 1000000, classBOperations: 10000000 };
+
+            const ctx = document.getElementById('r2Chart').getContext('2d');
+            
+            if (r2ChartInstance) {
+                r2ChartInstance.destroy();
+            }
+
+            r2ChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: ['Class A (Uploads)', 'Class B (Reads)'],
+                    datasets: [{
+                        label: 'Operations Performed (30d)',
+                        data: [last30.classA, last30.classB],
+                        backgroundColor: ['#10b981', '#00f2fe'],
+                        borderRadius: 8,
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: {
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: { color: '#9ca3af', font: { family: 'Outfit' } }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: '#9ca3af', font: { family: 'Outfit' } }
+                        }
+                    }
+                }
+            });
+
+            // Populate progress bars
+            const detailsList = document.getElementById('r2-details-list');
+            detailsList.innerHTML = '';
+
+            const items = [
+                { label: 'Class A Operations (Uploads)', current: last30.classA, max: limits.classAOperations, color: '#10b981' },
+                { label: 'Class B Operations (Reads)', current: last30.classB, max: limits.classBOperations, color: '#00f2fe' }
+            ];
+
+            items.forEach(item => {
+                const pct = ((item.current / item.max) * 100).toFixed(4);
+                const itemHtml = `
+                    <div class="stats-item">
+                        <div class="stats-item-header">
+                            <span class="stats-item-label">${item.label}</span>
+                            <span class="stats-item-value">${item.current.toLocaleString()} / ${item.max.toLocaleString()} (${pct}%)</span>
+                        </div>
+                        <div class="progress-bar-container">
+                            <div class="progress-bar" style="width: ${Math.max(1, Math.min(100, pct))}%; background: ${item.color}"></div>
+                        </div>
+                    </div>
+                `;
+                detailsList.innerHTML += itemHtml;
+            });
+        }
+
+        function renderCaffeineCaches(caches) {
+            const grid = document.getElementById('caffeine-cache-grid');
+            grid.innerHTML = '';
+            if (!caches) return;
+
+            Object.entries(caches).forEach(([cacheName, data]) => {
+                const subcard = document.createElement('div');
+                subcard.className = 'cache-subcard';
+                
+                // Format cache names to be more readable
+                const displayName = cacheName.replace('_', ' ').toUpperCase();
+
+                subcard.innerHTML = `
+                    <div class="cache-name">${displayName}</div>
+                    <div class="cache-hitrate">${data.hitRate || '100.00%'}</div>
+                    <div class="cache-details">
+                        Hits: <span class="success-text">${data.hits || 0}</span> | Misses: <span class="warn-text">${data.misses || 0}</span>
+                        <div style="margin-top: 0.25rem; font-size: 0.7rem; color: #10b981;">
+                            Prevented ${data.estimatedReadsSaved || 0} DB reads
+                        </div>
+                    </div>
+                `;
+                grid.appendChild(subcard);
+            });
+        }
+    </script>
+</body>
+</html>

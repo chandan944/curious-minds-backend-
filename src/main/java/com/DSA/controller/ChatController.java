@@ -46,7 +46,12 @@ public class ChatController {
         List<Map<String, Object>> messages = result.getContent().stream().map(msg -> {
             Map<String, Object> map = new java.util.HashMap<>();
             map.put("id", msg.getId());
+            if (msg.getMessageId() != null) {
+                map.put("messageId", msg.getMessageId());
+            }
             map.put("senderId", msg.getSender().getId());
+            map.put("senderIdString", msg.getSender().getIdString());
+            map.put("receiverId", null);
             map.put("senderName", msg.getSender().getName());
             map.put("senderImage", msg.getSender().getImageUrl() != null ? msg.getSender().getImageUrl() : "");
             map.put("target", "GLOBAL");
@@ -84,7 +89,13 @@ public class ChatController {
         List<Map<String, Object>> messages = result.getContent().stream().map(msg -> {
             Map<String, Object> map = new java.util.HashMap<>();
             map.put("id", msg.getId());
+            if (msg.getMessageId() != null) {
+                map.put("messageId", msg.getMessageId());
+            }
             map.put("senderId", msg.getSender().getId());
+            map.put("senderIdString", msg.getSender().getIdString());
+            map.put("receiverId", msg.getReceiver() != null ? msg.getReceiver().getId() : null);
+            map.put("receiverIdString", msg.getReceiver() != null ? msg.getReceiver().getIdString() : null);
             map.put("senderName", msg.getSender().getName());
             map.put("senderImage", msg.getSender().getImageUrl() != null ? msg.getSender().getImageUrl() : "");
             map.put("target", targetId.toString());
@@ -116,13 +127,25 @@ public class ChatController {
         // Exclude self just in case
         partners.removeIf(u -> u.getId().equals(myId));
 
-        List<Map<String, Object>> inbox = partners.stream().map(u -> Map.<String, Object>of(
-                "id", u.getId(),
-                "name", u.getName(),
-                "imageUrl", u.getImageUrl() != null ? u.getImageUrl() : "",
-                "level", u.getLevel(),
-                "title", u.getTitle()
-        )).collect(Collectors.toList());
+        // Batch fetch all unread message counts grouped by sender to resolve N+1 query loops
+        List<Object[]> unreadCounts = chatMessageRepository.countUnreadGroupedBySender(myId);
+        Map<Long, Long> unreadMap = unreadCounts.stream()
+                .collect(Collectors.toMap(
+                        row -> ((Number) row[0]).longValue(),
+                        row -> ((Number) row[1]).longValue()
+                ));
+
+        List<Map<String, Object>> inbox = partners.stream().map(u -> {
+                Map<String, Object> map = new java.util.HashMap<>();
+                map.put("id", u.getId());
+                map.put("idString", u.getIdString());
+                map.put("name", u.getName());
+                map.put("imageUrl", u.getImageUrl() != null ? u.getImageUrl() : "");
+                map.put("level", u.getLevel());
+                map.put("title", u.getTitle() != null ? u.getTitle() : "Curious Kid");
+                map.put("unreadCount", unreadMap.getOrDefault(u.getId(), 0L).intValue());
+                return map;
+        }).collect(Collectors.toList());
 
         return ResponseEntity.ok(inbox);
     }
@@ -133,6 +156,7 @@ public class ChatController {
         return userRepository.findById(id)
                 .map(u -> ResponseEntity.ok(Map.of(
                         "id", u.getId(),
+                        "idString", u.getIdString(),
                         "name", u.getName(),
                         "imageUrl", u.getImageUrl() != null ? u.getImageUrl() : "",
                         "level", u.getLevel(),

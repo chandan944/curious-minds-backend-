@@ -14,6 +14,7 @@ import java.util.UUID;
 public class S3Service {
 
     private final S3Client s3Client;
+    private final com.DSA.common.OperationTracker operationTracker;
 
     @Value("${aws.s3.bucket}")
     private String bucketName;
@@ -27,8 +28,9 @@ public class S3Service {
     @Value("${aws.cloudfront.cover.url}")
     private String coverCloudFrontUrl;
 
-    public S3Service(S3Client s3Client) {
+    public S3Service(S3Client s3Client, com.DSA.common.OperationTracker operationTracker) {
         this.s3Client = s3Client;
+        this.operationTracker = operationTracker;
     }
 
     public String uploadFile(MultipartFile file) throws IOException {
@@ -54,6 +56,9 @@ public class S3Service {
                 .contentType(file.getContentType())
                 .build();
 
+        // Track R2 Class A Operation (Upload)
+        operationTracker.trackR2ClassA();
+
         s3Client.putObject(putObjectRequest, RequestBody.fromInputStream(file.getInputStream(), file.getSize()));
 
         // Return the CloudFront URL for the uploaded object
@@ -75,10 +80,13 @@ public class S3Service {
             }
             String key = fileUrl.substring(index + 1);
             String targetBucket = isCover ? coverBucketName : bucketName;
+
+            // Track R2 Class B Operation (Delete)
+            operationTracker.trackR2ClassB();
+
             s3Client.deleteObject(builder -> builder.bucket(targetBucket).key(key).build());
         } catch (Exception e) {
             System.err.println("❌ Failed to delete from S3: " + e.getMessage());
         }
     }
 }
-

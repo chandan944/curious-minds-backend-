@@ -3,14 +3,19 @@ package com.DSA.controller;
 import com.DSA.ebook.Ebook;
 import com.DSA.ebook.EbookRepository;
 import com.DSA.ebook.S3Service;
+import com.DSA.user.UserRepository;
+import com.DSA.common.ExpoNotificationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
+import java.util.List;
 import java.util.Map;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 
 @RestController
 @RequestMapping("/api/ebooks")
@@ -20,6 +25,8 @@ public class EbookController {
 
     private final S3Service s3Service;
     private final EbookRepository ebookRepository;
+    private final UserRepository userRepository;
+    private final ExpoNotificationService expoNotificationService;
 
     // Admin who is allowed to perform restricted actions
     private static final String ALLOWED_ADMIN_EMAIL = "chandanprajapati6307@gmail.com";
@@ -37,7 +44,8 @@ public class EbookController {
     @PostMapping("/upload")
     public ResponseEntity<?> uploadEbook(
             Authentication authentication,
-            @RequestParam("file") MultipartFile file,
+            @RequestParam(value = "englishPdf", required = false) MultipartFile englishPdf,
+            @RequestParam(value = "hindiPdf", required = false) MultipartFile hindiPdf,
             @RequestParam(value = "title", required = false) String title,
             @RequestParam(value = "description", required = false) String description,
             @RequestParam(value = "coverImage", required = false) MultipartFile coverImage) {
@@ -47,44 +55,103 @@ public class EbookController {
                 return ResponseEntity.status(403).body(Map.of("success", false, "message", "Forbidden: Only designated admin can upload eBooks"));
             }
 
-            if (file.isEmpty()) {
-                return ResponseEntity.badRequest().body(Map.of("success", false, "message", "File is empty"));
+            if ((englishPdf == null || englishPdf.isEmpty()) && (hindiPdf == null || hindiPdf.isEmpty())) {
+                return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Please provide at least one PDF (English or Hindi)"));
             }
 
-            if (!"application/pdf".equalsIgnoreCase(file.getContentType()) && 
-                (file.getOriginalFilename() == null || !file.getOriginalFilename().toLowerCase().endsWith(".pdf"))) {
-                return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Only PDF files are allowed"));
+            String englishFileUrl = null;
+            if (englishPdf != null && !englishPdf.isEmpty()) {
+                if (!"application/pdf".equalsIgnoreCase(englishPdf.getContentType()) && 
+                    (englishPdf.getOriginalFilename() == null || !englishPdf.getOriginalFilename().toLowerCase().endsWith(".pdf"))) {
+                    return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Only PDF files are allowed for English version"));
+                }
+                englishFileUrl = s3Service.uploadFile(englishPdf);
             }
 
-            String fileUrl = s3Service.uploadFile(file);
+            String hindiFileUrl = null;
+            if (hindiPdf != null && !hindiPdf.isEmpty()) {
+                if (!"application/pdf".equalsIgnoreCase(hindiPdf.getContentType()) && 
+                    (hindiPdf.getOriginalFilename() == null || !hindiPdf.getOriginalFilename().toLowerCase().endsWith(".pdf"))) {
+                    return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Only PDF files are allowed for Hindi version"));
+                }
+                hindiFileUrl = s3Service.uploadFile(hindiPdf);
+            }
 
             String coverImageUrl = null;
             if (coverImage != null && !coverImage.isEmpty()) {
-                if (coverImage.getContentType() != null && coverImage.getContentType().startsWith("image/")) {
+                String contentType = coverImage.getContentType();
+                String filename = coverImage.getOriginalFilename();
+                boolean isImage = (contentType != null && contentType.startsWith("image/")) ||
+                                  (filename != null && (filename.toLowerCase().endsWith(".jpg") || 
+                                                        filename.toLowerCase().endsWith(".jpeg") || 
+                                                        filename.toLowerCase().endsWith(".png") || 
+                                                        filename.toLowerCase().endsWith(".webp")));
+                if (isImage) {
                     coverImageUrl = s3Service.uploadFile(coverImage, true);
+                } else {
+                    System.err.println("⚠️ Rejected cover image upload: content type is " + contentType + ", filename is " + filename);
                 }
             }
 
             String finalTitle = title;
             if (finalTitle == null || finalTitle.trim().isEmpty()) {
-                finalTitle = file.getOriginalFilename();
+                if (englishPdf != null && !englishPdf.isEmpty()) {
+                    finalTitle = englishPdf.getOriginalFilename();
+                } else if (hindiPdf != null && !hindiPdf.isEmpty()) {
+                    finalTitle = hindiPdf.getOriginalFilename();
+                }
+                
                 if (finalTitle != null && finalTitle.toLowerCase().endsWith(".pdf")) {
                     finalTitle = finalTitle.substring(0, finalTitle.length() - 4);
                 } else if (finalTitle == null) {
                     finalTitle = "Untitled Book";
                 }
             }
+            
+            if (finalTitle != null) {
+                try {
+                    // Fix strange characters like %20 in filenames by URL decoding them
+                    finalTitle = URLDecoder.decode(finalTitle, StandardCharsets.UTF_8.name());
+                } catch (Exception e) {
+                    // Ignore decoding errors
+                }
+            }
 
             Ebook ebook = Ebook.builder()
                     .title(finalTitle)
                     .description(description)
-                    .fileUrl(fileUrl)
+                    .englishFileUrl(englishFileUrl)
+                    .hindiFileUrl(hindiFileUrl)
                     .coverImageUrl(coverImageUrl)
                     .uploaderEmail(authentication.getName())
-                    .uploadedAt(LocalDateTime.now())
+                    .uploadedAt(Instant.now())
                     .build();
 
             ebookRepository.save(ebook);
+
+            // Send notification to all users who have registered a push token
+            try {
+                List<String> tokens = userRepository.findAll().stream()
+                        .filter(u -> u != null)
+                        .map(u -> u.getExpoPushToken())
+                        .filter(t -> t != null && !t.trim().isEmpty())
+                        .collect(java.util.stream.Collectors.toList());
+                        
+                if (!tokens.isEmpty()) {
+                    Map<String, Object> data = new java.util.HashMap<>();
+                    data.put("type", "NEW_EBOOK");
+                    data.put("ebookId", ebook.getId());
+                    
+                    expoNotificationService.sendBatchPushNotifications(
+                            tokens,
+                            "New eBook Available!",
+                            "📚 " + ebook.getTitle() + " has just been added to the library.",
+                            data
+                    );
+                }
+            } catch (Exception e) {
+                System.err.println("⚠️ Failed to send ebook notifications: " + e.getMessage());
+            }
 
             return ResponseEntity.ok(Map.of(
                     "success", true,
@@ -98,8 +165,30 @@ public class EbookController {
     }
     
     @GetMapping
-    public ResponseEntity<?> getAllEbooks() {
-        return ResponseEntity.ok(ebookRepository.findAllByOrderByUploadedAtDesc());
+    public ResponseEntity<?> getAllEbooks(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "15") int size) {
+        System.out.println("📚 [Backend] GET /api/ebooks called. Page: " + page + ", Size: " + size);
+        org.springframework.data.domain.Page<Ebook> result = ebookRepository.findAllByOrderByUploadedAtDesc(
+                org.springframework.data.domain.PageRequest.of(page, size));
+        
+        List<Ebook> ebooks = result.getContent();
+        if (!ebooks.isEmpty()) {
+            System.out.println("   [Backend] Returning " + ebooks.size() + " ebooks. First ebook details:");
+            Ebook first = ebooks.get(0);
+            System.out.println("             - Title: " + first.getTitle());
+            System.out.println("             - ID Value: " + first.getId());
+            System.out.println("             - ID Class: " + (first.getId() != null ? first.getId().getClass().getName() : "null"));
+        } else {
+            System.out.println("   [Backend] No ebooks found in database.");
+        }
+        
+        return ResponseEntity.ok(Map.of(
+                "content", result.getContent(),
+                "totalPages", result.getTotalPages(),
+                "totalElements", result.getTotalElements(),
+                "currentPage", page
+        ));
     }
 
     @PutMapping("/{id}")
@@ -129,26 +218,46 @@ public class EbookController {
     public ResponseEntity<?> deleteEbook(
             Authentication authentication,
             @PathVariable Long id) {
+        System.out.println("🗑️ [Backend] DELETE request received for Ebook ID: " + id);
         try {
             if (isNotAdmin(authentication)) {
+                System.out.println("❌ [Backend] Delete forbidden for user: " + authentication.getName());
                 return ResponseEntity.status(403).body(Map.of("success", false, "message", "Forbidden"));
             }
 
-            Ebook ebook = ebookRepository.findById(id)
-                    .orElseThrow(() -> new RuntimeException("Ebook not found"));
+            System.out.println("🔍 [Backend] Querying database for Ebook ID: " + id);
+            Ebook ebook = ebookRepository.findById(id).orElse(null);
+            if (ebook == null) {
+                System.out.println("❌ [Backend] Ebook NOT found in database for ID: " + id);
+                return ResponseEntity.status(404).body(Map.of("success", false, "message", "Ebook not found in database for ID: " + id));
+            }
+
+            System.out.println("✅ [Backend] Ebook found: '" + ebook.getTitle() + "'. Starting deletion...");
 
             // 1. Delete from S3
-            s3Service.deleteFile(ebook.getFileUrl());
+            if (ebook.getEnglishFileUrl() != null) {
+                System.out.println("   Deleting English PDF: " + ebook.getEnglishFileUrl());
+                s3Service.deleteFile(ebook.getEnglishFileUrl());
+            }
+            if (ebook.getHindiFileUrl() != null) {
+                System.out.println("   Deleting Hindi PDF: " + ebook.getHindiFileUrl());
+                s3Service.deleteFile(ebook.getHindiFileUrl());
+            }
             if (ebook.getCoverImageUrl() != null) {
+                System.out.println("   Deleting Cover Image: " + ebook.getCoverImageUrl());
                 s3Service.deleteFile(ebook.getCoverImageUrl(), true);
             }
 
             // 2. Delete from DB
+            System.out.println("   Deleting Ebook document from database...");
             ebookRepository.delete(ebook);
 
+            System.out.println("🎉 [Backend] Ebook successfully deleted.");
             return ResponseEntity.ok(Map.of("success", true, "message", "Ebook deleted"));
         } catch (Exception e) {
-            return ResponseEntity.status(500).body(Map.of("success", false, "message", e.getMessage()));
+            System.err.println("❌ [Backend] Exception during delete: " + e.getMessage());
+            e.printStackTrace();
+            return ResponseEntity.status(500).body(Map.of("success", false, "message", "Delete failed: " + e.getMessage()));
         }
     }
 }
