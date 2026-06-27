@@ -144,6 +144,17 @@ public class ChatController {
                 map.put("level", u.getLevel());
                 map.put("title", u.getTitle() != null ? u.getTitle() : "Curious Kid");
                 map.put("unreadCount", unreadMap.getOrDefault(u.getId(), 0L).intValue());
+
+                // Fetch last message details
+                Page<ChatMessage> lastMsgPage = chatMessageRepository.findDirectMessages(myId, u.getId(), PageRequest.of(0, 1));
+                if (!lastMsgPage.getContent().isEmpty()) {
+                    ChatMessage lastMsg = lastMsgPage.getContent().get(0);
+                    map.put("lastMessage", lastMsg.getContent());
+                    map.put("lastTimestamp", lastMsg.getTimestamp().toEpochMilli());
+                } else {
+                    map.put("lastMessage", "");
+                    map.put("lastTimestamp", 0L);
+                }
                 return map;
         }).collect(Collectors.toList());
 

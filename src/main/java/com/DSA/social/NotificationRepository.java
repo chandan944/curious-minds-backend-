@@ -12,13 +12,13 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Repository;
 import org.springframework.context.annotation.Lazy;
-import lombok.RequiredArgsConstructor;
 import com.DSA.common.IdGenerator;
 
 import java.time.Instant;
 import java.util.*;
 
 @Repository
+@SuppressWarnings("null")
 public class NotificationRepository {
 
     private final Firestore firestore;
@@ -91,27 +91,38 @@ public class NotificationRepository {
     public Page<Notification> findByRecipientIdOrderByCreatedAtDesc(Long recipientId, Pageable pageable) {
         int limit = pageable.getPageSize();
         int offset = (int) pageable.getOffset();
-        operationTracker.trackRead(); // Aggregation count query
         try {
             Query query = firestore.collection("notifications")
                     .whereEqualTo("recipientId", recipientId);
 
-            long total = query.count().get().get().getCount();
             operationTracker.trackRead(); // Query call
-            List<QueryDocumentSnapshot> docs = query
-                    .orderBy("createdAt", Query.Direction.DESCENDING)
-                    .limit(limit)
-                    .offset(offset)
-                    .get().get().getDocuments();
+            List<QueryDocumentSnapshot> docs = query.get().get().getDocuments();
 
             operationTracker.trackReads(docs.size());
             List<Notification> notifications = new ArrayList<>();
             for (QueryDocumentSnapshot doc : docs) {
-                notifications.add(toEntity(doc));
+                Notification entity = toEntity(doc);
+                if (entity != null) {
+                    notifications.add(entity);
+                }
             }
-            return new PageImpl<>(notifications, pageable, total);
+
+            // Sort in memory by createdAt descending
+            notifications.sort((n1, n2) -> {
+                if (n1.getCreatedAt() == null && n2.getCreatedAt() == null) return 0;
+                if (n1.getCreatedAt() == null) return 1;
+                if (n2.getCreatedAt() == null) return -1;
+                return n2.getCreatedAt().compareTo(n1.getCreatedAt());
+            });
+
+            int total = notifications.size();
+            int toIndex = Math.min(offset + limit, total);
+            List<Notification> pageContent = (offset < total) ? notifications.subList(offset, toIndex) : Collections.emptyList();
+
+            return new PageImpl<>(pageContent, pageable, total);
         } catch (Exception e) {
             System.err.println("❌ Error in NotificationRepository.findByRecipientIdOrderByCreatedAtDesc: " + e.getMessage());
+            e.printStackTrace();
             return new PageImpl<>(Collections.emptyList(), pageable, 0);
         }
     }

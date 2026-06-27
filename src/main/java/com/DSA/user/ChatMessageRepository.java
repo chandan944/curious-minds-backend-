@@ -10,7 +10,6 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Repository;
 import org.springframework.context.annotation.Lazy;
-import lombok.RequiredArgsConstructor;
 import com.DSA.common.IdGenerator;
 
 import jakarta.annotation.PostConstruct;
@@ -19,6 +18,7 @@ import java.util.*;
 import java.util.concurrent.ConcurrentLinkedDeque;
 
 @Repository
+@SuppressWarnings("null")
 public class ChatMessageRepository {
 
     private final Firestore firestore;
@@ -41,8 +41,6 @@ public class ChatMessageRepository {
             operationTracker.trackRead(); // Query call
             List<QueryDocumentSnapshot> docs = firestore.collection("chat_messages")
                     .whereEqualTo("receiverId", null)
-                    .orderBy("timestamp", Query.Direction.DESCENDING)
-                    .limit(100)
                     .get().get().getDocuments();
 
             operationTracker.trackReads(docs.size());
@@ -53,8 +51,12 @@ public class ChatMessageRepository {
                     list.add(msg);
                 }
             }
-            // Reverse so oldest is first in the deque
-            Collections.reverse(list);
+            // Sort by timestamp ascending in memory
+            list.sort(Comparator.comparing(ChatMessage::getTimestamp));
+            // Keep last 100
+            if (list.size() > 100) {
+                list = list.subList(list.size() - 100, list.size());
+            }
             globalChatQueue.addAll(list);
             System.out.println("✅ Successfully loaded " + globalChatQueue.size() + " global chat messages into memory.");
         } catch (Exception e) {
@@ -153,25 +155,28 @@ public class ChatMessageRepository {
         }
 
         // Fallback to Firestore if querying deeper history
-        operationTracker.trackRead(); // Aggregation count query
+        operationTracker.trackRead(); // Query call
         try {
             Query query = firestore.collection("chat_messages")
                     .whereEqualTo("receiverId", null);
 
-            long total = query.count().get().get().getCount();
-            operationTracker.trackRead(); // Query call
-            List<QueryDocumentSnapshot> docs = query
-                    .orderBy("timestamp", Query.Direction.DESCENDING)
-                    .limit(limit)
-                    .offset(offset)
-                    .get().get().getDocuments();
-
+            List<QueryDocumentSnapshot> docs = query.get().get().getDocuments();
             operationTracker.trackReads(docs.size());
             List<ChatMessage> messages = new ArrayList<>();
             for (QueryDocumentSnapshot doc : docs) {
-                messages.add(toEntity(doc));
+                ChatMessage msg = toEntity(doc);
+                if (msg != null) {
+                    messages.add(msg);
+                }
             }
-            return new PageImpl<>(messages, pageable, total);
+            // Sort in memory by timestamp descending
+            messages.sort((m1, m2) -> m2.getTimestamp().compareTo(m1.getTimestamp()));
+
+            int total = messages.size();
+            int toIndex = Math.min(offset + limit, total);
+            List<ChatMessage> pageContent = (offset < total) ? messages.subList(offset, toIndex) : Collections.emptyList();
+
+            return new PageImpl<>(pageContent, pageable, total);
         } catch (Exception e) {
             System.err.println("❌ Error in ChatMessageRepository.findByReceiverIsNullOrderByTimestampDesc: " + e.getMessage());
             return new PageImpl<>(Collections.emptyList(), pageable, 0);
@@ -181,28 +186,41 @@ public class ChatMessageRepository {
     public Page<ChatMessage> findDirectMessages(Long user1, Long user2, Pageable pageable) {
         int limit = pageable.getPageSize();
         int offset = (int) pageable.getOffset();
-        operationTracker.trackRead(); // Aggregation count query
         try {
-            Filter filter1 = Filter.and(Filter.equalTo("senderId", user1), Filter.equalTo("receiverId", user2));
-            Filter filter2 = Filter.and(Filter.equalTo("senderId", user2), Filter.equalTo("receiverId", user1));
-            
+            // Find messages involving user1
             Query query = firestore.collection("chat_messages")
-                    .where(Filter.or(filter1, filter2));
+                    .where(Filter.or(
+                            Filter.equalTo("senderId", user1),
+                            Filter.equalTo("receiverId", user1)
+                    ));
 
-            long total = query.count().get().get().getCount();
             operationTracker.trackRead(); // Query call
-            List<QueryDocumentSnapshot> docs = query
-                    .orderBy("timestamp", Query.Direction.DESCENDING)
-                    .limit(limit)
-                    .offset(offset)
-                    .get().get().getDocuments();
-
+            List<QueryDocumentSnapshot> docs = query.get().get().getDocuments();
             operationTracker.trackReads(docs.size());
+
             List<ChatMessage> messages = new ArrayList<>();
             for (QueryDocumentSnapshot doc : docs) {
-                messages.add(toEntity(doc));
+                Long senderId = doc.getLong("senderId");
+                Long receiverId = doc.getLong("receiverId");
+                if (senderId != null && receiverId != null) {
+                    if ((senderId.equals(user1) && receiverId.equals(user2)) ||
+                        (senderId.equals(user2) && receiverId.equals(user1))) {
+                        ChatMessage entity = toEntity(doc);
+                        if (entity != null) {
+                            messages.add(entity);
+                        }
+                    }
+                }
             }
-            return new PageImpl<>(messages, pageable, total);
+
+            // Sort in memory by timestamp descending
+            messages.sort((m1, m2) -> m2.getTimestamp().compareTo(m1.getTimestamp()));
+
+            int total = messages.size();
+            int toIndex = Math.min(offset + limit, total);
+            List<ChatMessage> pageContent = (offset < total) ? messages.subList(offset, toIndex) : Collections.emptyList();
+
+            return new PageImpl<>(pageContent, pageable, total);
         } catch (Exception e) {
             System.err.println("❌ Error in ChatMessageRepository.findDirectMessages: " + e.getMessage());
             return new PageImpl<>(Collections.emptyList(), pageable, 0);
@@ -211,19 +229,29 @@ public class ChatMessageRepository {
 
     public List<User> findRecentChatPartners(Long userId) {
         Set<Long> partnerIds = new LinkedHashSet<>(); // preserves insertion/recency order
-        operationTracker.trackRead(); // Query call
         try {
-            List<QueryDocumentSnapshot> docs = firestore.collection("chat_messages")
+            Query query = firestore.collection("chat_messages")
                     .where(Filter.or(
                             Filter.equalTo("senderId", userId),
                             Filter.equalTo("receiverId", userId)
-                    ))
-                    .orderBy("timestamp", Query.Direction.DESCENDING)
-                    .limit(100)
-                    .get().get().getDocuments();
+                    ));
 
+            operationTracker.trackRead(); // Query call
+            List<QueryDocumentSnapshot> docs = query.get().get().getDocuments();
             operationTracker.trackReads(docs.size());
-            for (QueryDocumentSnapshot doc : docs) {
+
+            // Map to temp list to sort by timestamp descending
+            List<QueryDocumentSnapshot> sortedDocs = new ArrayList<>(docs);
+            sortedDocs.sort((d1, d2) -> {
+                com.google.cloud.Timestamp t1 = d1.getTimestamp("timestamp");
+                com.google.cloud.Timestamp t2 = d2.getTimestamp("timestamp");
+                if (t1 == null && t2 == null) return 0;
+                if (t1 == null) return 1;
+                if (t2 == null) return -1;
+                return t2.compareTo(t1);
+            });
+
+            for (QueryDocumentSnapshot doc : sortedDocs) {
                 Long senderId = doc.getLong("senderId");
                 Long receiverId = doc.getLong("receiverId");
                 if (senderId != null && receiverId != null) {
@@ -249,10 +277,17 @@ public class ChatMessageRepository {
         if (userId == null) return 0;
         operationTracker.trackRead();
         try {
-            return (int) firestore.collection("chat_messages")
+            List<QueryDocumentSnapshot> docs = firestore.collection("chat_messages")
                     .whereEqualTo("receiverId", userId)
-                    .whereNotEqualTo("status", "READ")
-                    .count().get().get().getCount();
+                    .get().get().getDocuments();
+            int count = 0;
+            for (QueryDocumentSnapshot doc : docs) {
+                String status = doc.getString("status");
+                if (status != null && !"READ".equals(status)) {
+                    count++;
+                }
+            }
+            return count;
         } catch (Exception e) {
             System.err.println("❌ Error in ChatMessageRepository.countUnreadMessages: " + e.getMessage());
             return 0;
@@ -265,14 +300,16 @@ public class ChatMessageRepository {
         try {
             List<QueryDocumentSnapshot> docs = firestore.collection("chat_messages")
                     .whereEqualTo("receiverId", userId)
-                    .whereNotEqualTo("status", "READ")
                     .get().get().getDocuments();
 
             operationTracker.trackReads(docs.size());
             for (QueryDocumentSnapshot doc : docs) {
-                Long senderId = doc.getLong("senderId");
-                if (senderId != null) {
-                    counts.put(senderId, counts.getOrDefault(senderId, 0L) + 1);
+                String status = doc.getString("status");
+                if (status != null && !"READ".equals(status)) {
+                    Long senderId = doc.getLong("senderId");
+                    if (senderId != null) {
+                        counts.put(senderId, counts.getOrDefault(senderId, 0L) + 1);
+                    }
                 }
             }
         } catch (Exception e) {

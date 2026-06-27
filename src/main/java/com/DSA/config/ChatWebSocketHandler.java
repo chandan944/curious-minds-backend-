@@ -80,9 +80,13 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             if ("SEND".equals(type)) {
                 String target = payload.has("target") ? payload.get("target").getAsString() : "GLOBAL";
                 String content = payload.get("content").getAsString();
+                System.out.println("📩 [WS SEND] Received message. Sender ID: " + senderId + ", Target: " + target + ", Content: " + content);
 
                 User sender = userRepository.findById(senderId).orElse(null);
-                if (sender == null) return;
+                if (sender == null) {
+                    System.out.println("❌ [WS SEND] Sender not found for ID: " + senderId);
+                    return;
+                }
 
                 ChatMessage chatMsg = new ChatMessage();
                 chatMsg.setSender(sender);
@@ -92,6 +96,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                 if (payload.has("messageId") && !payload.get("messageId").isJsonNull()) {
                     chatMsg.setMessageId(payload.get("messageId").getAsString());
                 }
+                System.out.println("📨 [WS SEND] Message UUID: " + chatMsg.getMessageId());
 
                 // Extract client-generated timestamp if present
                 Instant timestamp = Instant.now();
@@ -119,6 +124,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                     receiver = userRepository.findById(Long.parseLong(target)).orElse(null);
                     
                     if (receiver != null) {
+                        System.out.println("👤 [WS SEND] Target receiver found: ID=" + receiver.getId() + ", Name=" + receiver.getName());
                         // Check privacy setting
                         if (receiver.isPrivateProfile()) {
                             // Are they friends?
@@ -132,15 +138,20 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                                 errorNode.addProperty("type", "MESSAGE_ERROR");
                                 errorNode.addProperty("message", "This user's profile is private. You must be friends to send them a message.");
                                 session.sendMessage(new TextMessage(errorNode.toString()));
+                                System.out.println("🚫 [WS SEND] Blocked due to private profile: Sender=" + sender.getId() + ", Receiver=" + receiver.getId());
                                 return; // Stop processing, don't save or forward.
                             }
                         }
                         chatMsg.setReceiver(receiver);
+                    } else {
+                        System.out.println("⚠️ [WS SEND] Target receiver NOT found in database: " + target);
                     }
                 }
 
                 // Save to DB
+                System.out.println("💾 [WS SEND] Saving ChatMessage to Firestore database...");
                 chatMessageRepository.save(chatMsg);
+                System.out.println("✅ [WS SEND] Saved ChatMessage. DB ID: " + chatMsg.getId());
 
                 // Send DELIVERED confirmation ACK back to sender immediately for 1:1 chats
                 if (!"GLOBAL".equals(target) && chatMsg.getMessageId() != null) {
@@ -148,6 +159,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                     deliveredAck.addProperty("type", "DELIVERED");
                     deliveredAck.addProperty("messageId", chatMsg.getMessageId());
                     if (session.isOpen()) {
+                        System.out.println("📤 [WS SEND] Sending DELIVERED ACK back to sender.");
                         session.sendMessage(new TextMessage(deliveredAck.toString()));
                     }
                 }
@@ -179,17 +191,22 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                 // Broadcast Logic
                 if ("GLOBAL".equals(target)) {
                     // Send to everyone
+                    System.out.println("📢 [WS SEND] Broadcasting GLOBAL message to all connected clients.");
                     for (WebSocketSession s : sessionUserMap.keySet()) {
                         if (s.isOpen()) s.sendMessage(textMessage);
                     }
                 } else {
                     // Send to sender
-                    if (session.isOpen()) session.sendMessage(textMessage);
+                    if (session.isOpen()) {
+                        System.out.println("📤 [WS SEND] Echoing message back to sender session: " + session.getId());
+                        session.sendMessage(textMessage);
+                    }
                     // Send to receiver if they are online
                     boolean receiverIsOnline = false;
                     if (receiver != null) {
                         for (Map.Entry<WebSocketSession, Long> entry : sessionUserMap.entrySet()) {
                             if (entry.getValue().equals(receiver.getId()) && entry.getKey().isOpen() && !entry.getKey().getId().equals(session.getId())) {
+                                System.out.println("📤 [WS SEND] Forwarding message to online receiver session: " + entry.getKey().getId());
                                 entry.getKey().sendMessage(textMessage);
                                 receiverIsOnline = true;
                             }
@@ -197,6 +214,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                         
                         // Send Push Notification if receiver is not online (or always, depending on preference)
                         if (!receiverIsOnline && receiver.getExpoPushToken() != null && !receiver.getExpoPushToken().isEmpty()) {
+                            System.out.println("🔔 [WS SEND] Receiver is offline. Dispatching push notification to token: " + receiver.getExpoPushToken());
                             Map<String, Object> data = new java.util.HashMap<>();
                             data.put("type", "CHAT_MESSAGE");
                             data.put("senderId", sender.getId());
@@ -209,6 +227,8 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                                 content,
                                 data
                             );
+                        } else {
+                            System.out.println("ℹ️ [WS SEND] Skipping push notification. Receiver online? " + receiverIsOnline + ", PushToken: " + receiver.getExpoPushToken());
                         }
                     }
                 }

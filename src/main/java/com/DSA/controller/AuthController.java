@@ -25,7 +25,6 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.lang.management.ManagementFactory;
 
@@ -33,6 +32,7 @@ import java.lang.management.ManagementFactory;
 @RequestMapping("/auth")
 @RequiredArgsConstructor
 @CrossOrigin(origins = "*")
+@SuppressWarnings("null")
 public class AuthController {
 
     private final UserRepository userRepository;
@@ -240,6 +240,7 @@ public class AuthController {
                 }
                 java.util.Map<String, Object> userMap = new java.util.HashMap<>();
                 userMap.put("id", u.getId());
+                userMap.put("idString", u.getIdString());
                 userMap.put("email", u.getEmail());
                 userMap.put("name", u.getName());
                 userMap.put("imageUrl", u.getImageUrl() != null ? u.getImageUrl() : "");
@@ -362,6 +363,7 @@ public class AuthController {
 
             java.util.Map<String, Object> userMap = new java.util.HashMap<>();
             userMap.put("id", user.getId());
+            userMap.put("idString", user.getIdString());
             userMap.put("email", user.getEmail());
             userMap.put("name", user.getName());
             userMap.put("imageUrl", user.getImageUrl() != null ? user.getImageUrl() : "");

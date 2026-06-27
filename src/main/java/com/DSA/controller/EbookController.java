@@ -5,6 +5,11 @@ import com.DSA.ebook.EbookRepository;
 import com.DSA.ebook.S3Service;
 import com.DSA.user.UserRepository;
 import com.DSA.common.ExpoNotificationService;
+import com.DSA.social.Notification;
+import com.DSA.social.NotificationRepository;
+import com.DSA.social.NotificationType;
+import com.DSA.config.ChatWebSocketHandler;
+import com.google.gson.JsonObject;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -27,6 +32,8 @@ public class EbookController {
     private final EbookRepository ebookRepository;
     private final UserRepository userRepository;
     private final ExpoNotificationService expoNotificationService;
+    private final NotificationRepository notificationRepository;
+    private final ChatWebSocketHandler chatWebSocketHandler;
 
     // Admin who is allowed to perform restricted actions
     private static final String ALLOWED_ADMIN_EMAIL = "chandanprajapati6307@gmail.com";
@@ -131,15 +138,57 @@ public class EbookController {
 
             // Send notification to all users who have registered a push token
             try {
-                List<String> tokens = userRepository.findAll().stream()
-                        .filter(u -> u != null)
-                        .map(u -> u.getExpoPushToken())
-                        .filter(t -> t != null && !t.trim().isEmpty())
-                        .collect(java.util.stream.Collectors.toList());
+                List<com.DSA.user.User> allUsers = userRepository.findAll();
+                List<String> tokens = new java.util.ArrayList<>();
+                String uploaderEmail = authentication != null ? authentication.getName() : "";
+                
+                for (com.DSA.user.User u : allUsers) {
+                    if (u == null) continue;
+                    
+                    // Exclude the uploader themselves from notifications
+                    if (uploaderEmail != null && uploaderEmail.equalsIgnoreCase(u.getEmail())) {
+                        continue;
+                    }
+                    
+                    // 1. Save Notification record in Firestore
+                    Notification notif = Notification.builder()
+                            .recipient(u)
+                            .type(NotificationType.NEW_EBOOK)
+                            .senderId(0L) // System/Admin ID
+                            .senderName("Library Admin")
+                            .message("📚 " + ebook.getTitle() + " has just been added to the library.")
+                            .isRead(false)
+                            .createdAt(Instant.now())
+                            .build();
+                    notificationRepository.save(notif);
+                    
+                    // Collect push token if registered
+                    if (u.getExpoPushToken() != null && !u.getExpoPushToken().trim().isEmpty()) {
+                        tokens.add(u.getExpoPushToken());
+                    }
+                    
+                    // 2. If user is online, push via WebSocket
+                    if (chatWebSocketHandler.isUserOnline(u.getId())) {
+                        JsonObject payload = new JsonObject();
+                        payload.addProperty("type", "NOTIFICATION");
+                        payload.addProperty("id", notif.getId());
+                        payload.addProperty("notifType", NotificationType.NEW_EBOOK.name());
+                        payload.addProperty("senderId", 0L);
+                        payload.addProperty("senderName", "Library Admin");
+                        payload.addProperty("senderImage", "");
+                        payload.addProperty("message", notif.getMessage());
+                        payload.addProperty("isRead", false);
+                        payload.addProperty("createdAt", notif.getCreatedAt().toString());
                         
+                        chatWebSocketHandler.sendToUser(u.getId(), payload);
+                    }
+                }
+                        
+                // 3. Send Expo Batch Push Notification
                 if (!tokens.isEmpty()) {
                     Map<String, Object> data = new java.util.HashMap<>();
-                    data.put("type", "NEW_EBOOK");
+                    data.put("type", "NOTIFICATION");
+                    data.put("notifType", NotificationType.NEW_EBOOK.name());
                     data.put("ebookId", ebook.getId());
                     
                     expoNotificationService.sendBatchPushNotifications(
@@ -151,6 +200,7 @@ public class EbookController {
                 }
             } catch (Exception e) {
                 System.err.println("⚠️ Failed to send ebook notifications: " + e.getMessage());
+                e.printStackTrace();
             }
 
             return ResponseEntity.ok(Map.of(

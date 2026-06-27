@@ -4,5 +4,6 @@ public enum NotificationType {
     LIKE,
     FRIEND_REQUEST,
     FRIEND_ACCEPT,
-    MESSAGE
+    MESSAGE,
+    NEW_EBOOK
 }
