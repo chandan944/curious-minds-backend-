@@ -323,6 +323,34 @@ public class ChatMessageRepository {
         return result;
     }
 
+    public void markAllAsRead(Long senderId, Long receiverId) {
+        if (senderId == null || receiverId == null) return;
+        try {
+            List<QueryDocumentSnapshot> docs = firestore.collection("chat_messages")
+                    .whereEqualTo("senderId", senderId)
+                    .whereEqualTo("receiverId", receiverId)
+                    .get().get().getDocuments();
+
+            if (!docs.isEmpty()) {
+                var batch = firestore.batch();
+                boolean hasUpdates = false;
+                for (var doc : docs) {
+                    String status = doc.getString("status");
+                    if (!"READ".equals(status)) {
+                        batch.update(doc.getReference(), "status", "READ");
+                        operationTracker.trackWrite();
+                        hasUpdates = true;
+                    }
+                }
+                if (hasUpdates) {
+                    batch.commit().get();
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("❌ Error in ChatMessageRepository.markAllAsRead: " + e.getMessage());
+        }
+    }
+
     private ChatMessage toEntity(DocumentSnapshot doc) {
         if (doc == null || !doc.exists()) return null;
         try {

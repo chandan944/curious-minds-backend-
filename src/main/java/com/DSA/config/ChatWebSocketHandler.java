@@ -98,19 +98,8 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                 }
                 System.out.println("📨 [WS SEND] Message UUID: " + chatMsg.getMessageId());
 
-                // Extract client-generated timestamp if present
+                // Always use server-authoritative timestamp to prevent client timezone/clock conflicts
                 Instant timestamp = Instant.now();
-                if (payload.has("timestamp") && !payload.get("timestamp").isJsonNull()) {
-                    try {
-                        timestamp = Instant.ofEpochMilli(payload.get("timestamp").getAsLong());
-                    } catch (Exception e) {
-                        try {
-                            timestamp = Instant.parse(payload.get("timestamp").getAsString());
-                        } catch (Exception ex) {
-                            timestamp = Instant.now();
-                        }
-                    }
-                }
                 chatMsg.setTimestamp(timestamp);
 
                 if (payload.has("replyToId") && !payload.get("replyToId").isJsonNull()) {

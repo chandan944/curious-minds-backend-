@@ -184,6 +184,19 @@ public class ChatController {
         return ResponseEntity.ok(chatWebSocketHandler.isUserOnline(userId));
     }
 
+    // ── 5.5 Bulk Mark Messages as Read ───────────────────────────────────────
+    @PostMapping("/read/{senderId}")
+    public ResponseEntity<?> markAllAsRead(
+            @RequestHeader("Authorization") String authHeader,
+            @PathVariable Long senderId) {
+        
+        Long myId = getUserIdFromToken(authHeader);
+        if (myId == null) return ResponseEntity.status(401).build();
+
+        chatMessageRepository.markAllAsRead(senderId, myId);
+        return ResponseEntity.ok().build();
+    }
+
     // ── 6. Fetch Unread Chat Messages Count ──────────────────────────────────
     @GetMapping("/unread-count")
     public ResponseEntity<Map<String, Integer>> getUnreadChatCount(@RequestHeader("Authorization") String authHeader) {
