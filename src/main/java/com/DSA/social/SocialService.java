@@ -222,12 +222,22 @@ public class SocialService {
         List<Object[]> results = friendshipRepository.findMutualFriendRecommendations(userId, size, offset);
         List<Map<String, Object>> recommendations = new ArrayList<>();
 
+        Map<Long, Object[]> resultMap = new HashMap<>();
+        List<Long> potentialFriendIds = new ArrayList<>();
         for (Object[] row : results) {
             Long potentialFriendId = ((Number) row[0]).longValue();
-            Long mutualCount = ((Number) row[1]).longValue();
-            Integer connectionDegree = ((Number) row[2]).intValue();
+            resultMap.put(potentialFriendId, row);
+            potentialFriendIds.add(potentialFriendId);
+        }
 
-            userRepository.findById(potentialFriendId).ifPresent(u -> {
+        List<User> users = userRepository.findAllByIds(potentialFriendIds);
+
+        for (User u : users) {
+            Object[] row = resultMap.get(u.getId());
+            if (row != null) {
+                Long mutualCount = ((Number) row[1]).longValue();
+                Integer connectionDegree = ((Number) row[2]).intValue();
+
                 Map<String, Object> map = new LinkedHashMap<>();
                 map.put("id", u.getId());
                 map.put("idString", u.getIdString());
@@ -246,7 +256,7 @@ public class SocialService {
                 map.put("friendshipStatus", getFriendshipStatus(userId, u.getId()));
 
                 recommendations.add(map);
-            });
+            }
         }
         
         // Fallback to top users if not enough recommendations (e.g. for new users)

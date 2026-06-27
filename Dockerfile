@@ -25,4 +25,4 @@ COPY --from=build /app/target/*.jar app.jar
 EXPOSE 8080
 
 # Run the application with production-optimized settings
-ENTRYPOINT ["java", "-jar", "-Dserver.port=8080", "app.jar"]
+ENTRYPOINT ["java", "-XX:MaxRAMPercentage=60.0", "-XX:+UseSerialGC", "-XX:ActiveProcessorCount=1", "-Dspring.devtools.restart.enabled=false", "-jar", "-Dserver.port=8080", "app.jar"]

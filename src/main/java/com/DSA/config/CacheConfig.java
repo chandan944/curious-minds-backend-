@@ -3,13 +3,10 @@ package com.DSA.config;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.EnableCaching;
-import org.springframework.cache.caffeine.CaffeineCache;
-import org.springframework.cache.support.SimpleCacheManager;
+import org.springframework.cache.caffeine.CaffeineCacheManager;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-import java.util.Arrays;
-import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 @Configuration
@@ -18,25 +15,43 @@ public class CacheConfig {
 
     @Bean
     public CacheManager cacheManager() {
-        SimpleCacheManager cacheManager = new SimpleCacheManager();
+        CaffeineCacheManager cacheManager = new CaffeineCacheManager();
+        
+        // Configure recommendations cache (TTL: 3 minutes, Max: 100 entries)
+        cacheManager.registerCustomCache("recommendations",
+                Caffeine.newBuilder()
+                        .expireAfterWrite(3, TimeUnit.MINUTES)
+                        .maximumSize(100)
+                        .build());
+                        
+        // Configure user profiles cache (TTL: 5 minutes, Max: 200 entries)
+        cacheManager.registerCustomCache("user_profiles",
+                Caffeine.newBuilder()
+                        .expireAfterWrite(5, TimeUnit.MINUTES)
+                        .maximumSize(200)
+                        .build());
 
-        List<CaffeineCache> caches = Arrays.asList(
-                buildCache("leaderboard_all", 60, 100),
-                buildCache("leaderboard_month", 60, 100),
-                buildCache("leaderboard_week", 60, 100),
-                buildCache("user_profiles", 180, 500),
-                buildCache("recommendations", 120, 500)
-        );
+        // Configure all-time leaderboard cache (TTL: 10 minutes, Max: 5 entries)
+        cacheManager.registerCustomCache("leaderboard_all",
+                Caffeine.newBuilder()
+                        .expireAfterWrite(10, TimeUnit.MINUTES)
+                        .maximumSize(5)
+                        .build());
 
-        cacheManager.setCaches(caches);
+        // Configure monthly leaderboard cache (TTL: 10 minutes, Max: 5 entries)
+        cacheManager.registerCustomCache("leaderboard_month",
+                Caffeine.newBuilder()
+                        .expireAfterWrite(10, TimeUnit.MINUTES)
+                        .maximumSize(5)
+                        .build());
+
+        // Configure weekly leaderboard cache (TTL: 10 minutes, Max: 5 entries)
+        cacheManager.registerCustomCache("leaderboard_week",
+                Caffeine.newBuilder()
+                        .expireAfterWrite(10, TimeUnit.MINUTES)
+                        .maximumSize(5)
+                        .build());
+
         return cacheManager;
-    }
-
-    private CaffeineCache buildCache(String name, int ttlSeconds, int maxSize) {
-        return new CaffeineCache(name, Caffeine.newBuilder()
-                .expireAfterWrite(ttlSeconds, TimeUnit.SECONDS)
-                .maximumSize(maxSize)
-                .recordStats()
-                .build());
     }
 }

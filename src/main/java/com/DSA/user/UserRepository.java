@@ -4,7 +4,6 @@ import com.google.cloud.firestore.Firestore;
 import com.google.cloud.firestore.DocumentSnapshot;
 import com.google.cloud.firestore.Query;
 import com.google.cloud.firestore.QueryDocumentSnapshot;
-import com.google.cloud.firestore.WriteResult;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
@@ -17,6 +16,7 @@ import java.util.stream.Collectors;
 
 @Repository
 @RequiredArgsConstructor
+@SuppressWarnings("null")
 public class UserRepository {
 
     private final Firestore firestore;
@@ -177,6 +177,34 @@ public class UserRepository {
         } catch (Exception e) {
             System.err.println("❌ Error in UserRepository.fuzzySearchUsers: " + e.getMessage());
             return new PageImpl<>(Collections.emptyList(), pageable, 0);
+        }
+    }
+
+    public List<User> findAllByIds(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) return Collections.emptyList();
+
+        List<String> docPaths = ids.stream()
+                .distinct()
+                .filter(Objects::nonNull)
+                .map(String::valueOf)
+                .collect(Collectors.toList());
+
+        if (docPaths.isEmpty()) return Collections.emptyList();
+
+        operationTracker.trackReads(docPaths.size());
+        try {
+            com.google.cloud.firestore.DocumentReference[] refs = docPaths.stream()
+                    .map(path -> firestore.collection("users").document(path))
+                    .toArray(com.google.cloud.firestore.DocumentReference[]::new);
+
+            return firestore.getAll(refs).get().stream()
+                    .filter(doc -> doc.exists())
+                    .map(doc -> doc.toObject(User.class))
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            System.err.println("❌ Error in UserRepository.findAllByIds: " + e.getMessage());
+            return Collections.emptyList();
         }
     }
 
