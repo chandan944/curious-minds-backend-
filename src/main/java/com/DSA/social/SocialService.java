@@ -25,8 +25,21 @@ public class SocialService {
     private final ChatWebSocketHandler chatWebSocketHandler;
     private final ExpoNotificationService expoNotificationService;
 
+    private SocialService self;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setSelf(@org.springframework.context.annotation.Lazy SocialService self) {
+        this.self = self;
+    }
+
     // ── Like / Unlike ─────────────────────────────────────────────────────────
     @Transactional
+    @org.springframework.cache.annotation.Caching(evict = {
+        @org.springframework.cache.annotation.CacheEvict(value = "like_counts", key = "#targetUserId"),
+        @org.springframework.cache.annotation.CacheEvict(value = "has_liked", key = "#likerId + '_' + #targetUserId"),
+        @org.springframework.cache.annotation.CacheEvict(value = "user_profiles", allEntries = true),
+        @org.springframework.cache.annotation.CacheEvict(value = "recommendations", allEntries = true)
+    })
     public boolean toggleLike(Long likerId, Long targetUserId) {
         if (likerId.equals(targetUserId)) {
             throw new IllegalArgumentException("Cannot like yourself");
@@ -74,6 +87,11 @@ public class SocialService {
 
     // ── Friend Request ────────────────────────────────────────────────────────
     @Transactional
+    @org.springframework.cache.annotation.Caching(evict = {
+        @org.springframework.cache.annotation.CacheEvict(value = "friendship_statuses", key = "T(java.lang.Math).min(#requesterId, #addresseeId) + '_' + T(java.lang.Math).max(#requesterId, #addresseeId)"),
+        @org.springframework.cache.annotation.CacheEvict(value = "recommendations", allEntries = true),
+        @org.springframework.cache.annotation.CacheEvict(value = "user_profiles", allEntries = true)
+    })
     public String sendFriendRequest(Long requesterId, Long addresseeId) {
         if (requesterId.equals(addresseeId)) {
             throw new IllegalArgumentException("Cannot friend yourself");
@@ -117,6 +135,13 @@ public class SocialService {
 
     // ── Accept Friend Request ─────────────────────────────────────────────────
     @Transactional
+    @org.springframework.cache.annotation.Caching(evict = {
+        @org.springframework.cache.annotation.CacheEvict(value = "friendship_statuses", key = "T(java.lang.Math).min(#currentUserId, #requesterId) + '_' + T(java.lang.Math).max(#currentUserId, #requesterId)"),
+        @org.springframework.cache.annotation.CacheEvict(value = "friend_counts", key = "#currentUserId"),
+        @org.springframework.cache.annotation.CacheEvict(value = "friend_counts", key = "#requesterId"),
+        @org.springframework.cache.annotation.CacheEvict(value = "recommendations", allEntries = true),
+        @org.springframework.cache.annotation.CacheEvict(value = "user_profiles", allEntries = true)
+    })
     public String acceptFriendRequest(Long currentUserId, Long requesterId) {
         Optional<Friendship> existing = friendshipRepository.findBetweenUsers(requesterId, currentUserId);
 
@@ -156,18 +181,22 @@ public class SocialService {
     }
 
     // ── Get social stats for a profile ────────────────────────────────────────
+    @org.springframework.cache.annotation.Cacheable(value = "like_counts", key = "#userId")
     public long getLikeCount(Long userId) {
         return userLikeRepository.countByLikedUserId(userId);
     }
 
+    @org.springframework.cache.annotation.Cacheable(value = "friend_counts", key = "#userId")
     public long getFriendCount(Long userId) {
         return friendshipRepository.countFriendsByUserId(userId);
     }
 
+    @org.springframework.cache.annotation.Cacheable(value = "has_liked", key = "#likerId + '_' + #targetId")
     public boolean hasLiked(Long likerId, Long targetId) {
         return userLikeRepository.existsByLikerIdAndLikedUserId(likerId, targetId);
     }
 
+    @org.springframework.cache.annotation.Cacheable(value = "friendship_statuses", key = "T(java.lang.Math).min(#userId1, #userId2) + '_' + T(java.lang.Math).max(#userId1, #userId2)")
     public String getFriendshipStatus(Long userId1, Long userId2) {
         Optional<Friendship> f = friendshipRepository.findBetweenUsers(userId1, userId2);
         if (f.isEmpty()) return "NONE";
@@ -206,10 +235,10 @@ public class SocialService {
             profile.put("streak", u.getStreak());
             profile.put("title", u.getTitle());
             profile.put("bio", u.getBio() != null ? u.getBio() : "");
-            profile.put("likeCount", getLikeCount(targetUserId));
-            profile.put("friendCount", getFriendCount(targetUserId));
-            profile.put("isLikedByMe", hasLiked(myId, targetUserId));
-            profile.put("friendshipStatus", getFriendshipStatus(myId, targetUserId));
+            profile.put("likeCount", self.getLikeCount(targetUserId));
+            profile.put("friendCount", self.getFriendCount(targetUserId));
+            profile.put("isLikedByMe", self.hasLiked(myId, targetUserId));
+            profile.put("friendshipStatus", self.getFriendshipStatus(myId, targetUserId));
             profile.put("isPrivateProfile", u.isPrivateProfile());
             return profile;
         }).orElse(null);
@@ -250,10 +279,10 @@ public class SocialService {
 
                 // Populate profile metrics directly to eliminate N+1 queries
                 map.put("points", u.getPoints());
-                map.put("likeCount", getLikeCount(u.getId()));
-                map.put("friendCount", getFriendCount(u.getId()));
-                map.put("isLikedByMe", hasLiked(userId, u.getId()));
-                map.put("friendshipStatus", getFriendshipStatus(userId, u.getId()));
+                map.put("likeCount", self.getLikeCount(u.getId()));
+                map.put("friendCount", self.getFriendCount(u.getId()));
+                map.put("isLikedByMe", self.hasLiked(userId, u.getId()));
+                map.put("friendshipStatus", self.getFriendshipStatus(userId, u.getId()));
 
                 recommendations.add(map);
             }
@@ -267,7 +296,7 @@ public class SocialService {
                 if (u.getId().equals(userId)) continue;
                 
                 // Only add if not already friends and not already in the list
-                String friendshipStatus = getFriendshipStatus(userId, u.getId());
+                String friendshipStatus = self.getFriendshipStatus(userId, u.getId());
                 if ("NONE".equals(friendshipStatus)) {
                     boolean alreadyAdded = recommendations.stream().anyMatch(m -> m.get("id").equals(u.getId()));
                     if (!alreadyAdded) {
@@ -282,9 +311,9 @@ public class SocialService {
 
                         // Populate profile metrics directly to eliminate N+1 queries
                         map.put("points", u.getPoints());
-                        map.put("likeCount", getLikeCount(u.getId()));
-                        map.put("friendCount", getFriendCount(u.getId()));
-                        map.put("isLikedByMe", hasLiked(userId, u.getId()));
+                        map.put("likeCount", self.getLikeCount(u.getId()));
+                        map.put("friendCount", self.getFriendCount(u.getId()));
+                        map.put("isLikedByMe", self.hasLiked(userId, u.getId()));
                         map.put("friendshipStatus", friendshipStatus);
 
                         recommendations.add(map);
@@ -299,11 +328,37 @@ public class SocialService {
     // ── Search Users ─────────────────────────────────────────────────────────
     public List<Map<String, Object>> searchUsers(Long currentUserId, String query, int page, int size) {
         String exactQuery = query.toLowerCase().trim();
-        String likeQuery = "%" + exactQuery.replaceAll("\\s+", "%") + "%";
-        String fuzzyPattern = "%" + String.join("%", exactQuery.replaceAll("\\s+", "").split("")) + "%";
+        String cleanTerm = exactQuery.replace(" ", "");
         
-        org.springframework.data.domain.Page<User> users = userRepository.fuzzySearchUsers(exactQuery, likeQuery, fuzzyPattern, currentUserId, org.springframework.data.domain.PageRequest.of(page, size));
-        return users.getContent().stream().map(u -> {
+        List<User> allUsers = userRepository.findAllCached();
+        List<User> matched = allUsers.stream()
+                .filter(u -> u.getId() != null && !u.getId().equals(currentUserId))
+                .filter(u -> {
+                    String name = u.getName() != null ? u.getName().toLowerCase() : "";
+                    String email = u.getEmail() != null ? u.getEmail().toLowerCase() : "";
+                    String cleanName = name.replace(" ", "");
+                    return name.contains(exactQuery) || email.contains(exactQuery) || cleanName.contains(cleanTerm);
+                })
+                .sorted((u1, u2) -> {
+                    String name1 = u1.getName() != null ? u1.getName().toLowerCase() : "";
+                    String name2 = u2.getName() != null ? u2.getName().toLowerCase() : "";
+
+                    int score1 = getNameMatchScore(name1, exactQuery);
+                    int score2 = getNameMatchScore(name2, exactQuery);
+
+                    if (score1 != score2) {
+                        return Integer.compare(score1, score2);
+                    }
+                    return name1.compareTo(name2);
+                })
+                .collect(Collectors.toList());
+
+        int total = matched.size();
+        int start = page * size;
+        int end = Math.min(start + size, total);
+        List<User> pageContent = (start < total) ? matched.subList(start, end) : Collections.emptyList();
+
+        return pageContent.stream().map(u -> {
             Map<String, Object> map = new LinkedHashMap<>();
             map.put("id", u.getId());
             map.put("idString", u.getIdString());
@@ -311,9 +366,16 @@ public class SocialService {
             map.put("imageUrl", u.getImageUrl() != null ? u.getImageUrl() : "");
             map.put("level", u.getLevel());
             map.put("title", u.getTitle());
-            map.put("friendshipStatus", getFriendshipStatus(currentUserId, u.getId()));
+            map.put("friendshipStatus", self.getFriendshipStatus(currentUserId, u.getId()));
             return map;
         }).collect(Collectors.toList());
+    }
+
+    private int getNameMatchScore(String name, String term) {
+        if (name.equals(term)) return 1;
+        if (name.startsWith(term)) return 2;
+        if (name.contains(term)) return 3;
+        return 4;
     }
 
     // ── Get Friends List ──────────────────────────────────────────────────────

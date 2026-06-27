@@ -56,6 +56,10 @@ public class UserRepository {
         return Optional.empty();
     }
 
+    @org.springframework.cache.annotation.Caching(evict = {
+        @org.springframework.cache.annotation.CacheEvict(value = "all_users_list", allEntries = true),
+        @org.springframework.cache.annotation.CacheEvict(value = "user_profiles", allEntries = true)
+    })
     public User save(User user) {
         if (user == null) return null;
         if (user.getId() == null) {
@@ -75,6 +79,10 @@ public class UserRepository {
         return user;
     }
 
+    @org.springframework.cache.annotation.Caching(evict = {
+        @org.springframework.cache.annotation.CacheEvict(value = "all_users_list", allEntries = true),
+        @org.springframework.cache.annotation.CacheEvict(value = "user_profiles", allEntries = true)
+    })
     public void delete(User user) {
         if (user != null && user.getId() != null) {
             operationTracker.trackDelete();
@@ -102,6 +110,11 @@ public class UserRepository {
             System.err.println("❌ Error in UserRepository.findAll: " + e.getMessage());
         }
         return list;
+    }
+
+    @org.springframework.cache.annotation.Cacheable(value = "all_users_list")
+    public List<User> findAllCached() {
+        return findAll();
     }
 
     public Page<User> findAllByOrderByPointsDesc(Pageable pageable) {

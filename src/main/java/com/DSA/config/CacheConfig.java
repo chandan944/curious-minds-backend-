@@ -52,6 +52,48 @@ public class CacheConfig {
                         .maximumSize(5)
                         .build());
 
+        // Configure like counts cache (TTL: 10 minutes, Max: 1000 entries)
+        cacheManager.registerCustomCache("like_counts",
+                Caffeine.newBuilder()
+                        .expireAfterWrite(10, TimeUnit.MINUTES)
+                        .maximumSize(1000)
+                        .build());
+
+        // Configure friend counts cache (TTL: 10 minutes, Max: 1000 entries)
+        cacheManager.registerCustomCache("friend_counts",
+                Caffeine.newBuilder()
+                        .expireAfterWrite(10, TimeUnit.MINUTES)
+                        .maximumSize(1000)
+                        .build());
+
+        // Configure has liked cache (TTL: 10 minutes, Max: 2000 entries)
+        cacheManager.registerCustomCache("has_liked",
+                Caffeine.newBuilder()
+                        .expireAfterWrite(10, TimeUnit.MINUTES)
+                        .maximumSize(2000)
+                        .build());
+
+        // Configure friendship statuses cache (TTL: 10 minutes, Max: 2000 entries)
+        cacheManager.registerCustomCache("friendship_statuses",
+                Caffeine.newBuilder()
+                        .expireAfterWrite(10, TimeUnit.MINUTES)
+                        .maximumSize(2000)
+                        .build());
+
+        // Configure all users list cache (TTL: 10 minutes, Max: 1 entry)
+        cacheManager.registerCustomCache("all_users_list",
+                Caffeine.newBuilder()
+                        .expireAfterWrite(10, TimeUnit.MINUTES)
+                        .maximumSize(1)
+                        .build());
+
+        // Configure ebook pages cache (TTL: 10 minutes, Max: 20 entries)
+        cacheManager.registerCustomCache("ebook_pages",
+                Caffeine.newBuilder()
+                        .expireAfterWrite(10, TimeUnit.MINUTES)
+                        .maximumSize(20)
+                        .build());
+
         return cacheManager;
     }
 }

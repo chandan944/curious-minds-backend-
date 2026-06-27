@@ -18,6 +18,7 @@ import java.util.Optional;
 
 @Repository
 @RequiredArgsConstructor
+@SuppressWarnings("null")
 public class EbookRepository {
 
     private final Firestore firestore;
@@ -39,6 +40,7 @@ public class EbookRepository {
         return Optional.empty();
     }
 
+    @org.springframework.cache.annotation.CacheEvict(value = "ebook_pages", allEntries = true)
     public Ebook save(Ebook ebook) {
         if (ebook == null) return null;
         if (ebook.getId() == null) {
@@ -55,6 +57,7 @@ public class EbookRepository {
         return ebook;
     }
 
+    @org.springframework.cache.annotation.CacheEvict(value = "ebook_pages", allEntries = true)
     public void delete(Ebook ebook) {
         if (ebook != null && ebook.getId() != null) {
             operationTracker.trackDelete();
@@ -68,6 +71,7 @@ public class EbookRepository {
         }
     }
 
+    @org.springframework.cache.annotation.Cacheable(value = "ebook_pages", key = "#pageable.pageNumber + '_' + #pageable.pageSize")
     public Page<Ebook> findAllByOrderByUploadedAtDesc(Pageable pageable) {
         int limit = pageable.getPageSize();
         int offset = (int) pageable.getOffset();
