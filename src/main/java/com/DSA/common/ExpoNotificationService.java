@@ -35,8 +35,8 @@ public class ExpoNotificationService {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
 
-            // Add Expo authentication header
-            if (expoAccessToken != null && !expoAccessToken.isEmpty()) {
+            // Add Expo authentication header only if a valid custom token is provided
+            if (expoAccessToken != null && !expoAccessToken.isEmpty() && !expoAccessToken.equalsIgnoreCase("YOUR_EXPO_ACCESS_TOKEN_HERE")) {
                 headers.set("Authorization", "Bearer " + expoAccessToken);
             }
 
@@ -67,8 +67,8 @@ public class ExpoNotificationService {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
 
-            // Add Expo authentication header
-            if (expoAccessToken != null && !expoAccessToken.isEmpty()) {
+            // Add Expo authentication header only if a valid custom token is provided
+            if (expoAccessToken != null && !expoAccessToken.isEmpty() && !expoAccessToken.equalsIgnoreCase("YOUR_EXPO_ACCESS_TOKEN_HERE")) {
                 headers.set("Authorization", "Bearer " + expoAccessToken);
             }
 
@@ -90,11 +90,15 @@ public class ExpoNotificationService {
             if (payloads.isEmpty())
                 return;
 
-            HttpEntity<List<Map<String, Object>>> request = new HttpEntity<>(payloads, headers);
-            ResponseEntity<String> response = restTemplate.postForEntity(EXPO_PUSH_URL, request, String.class);
-
-            System.out.println(
-                    "Batch push notification sent to " + payloads.size() + " devices: " + response.getStatusCode());
+            // Chunk payloads into batches of 100 as per Expo API limitations
+            int batchSize = 100;
+            for (int i = 0; i < payloads.size(); i += batchSize) {
+                List<Map<String, Object>> chunk = payloads.subList(i, Math.min(i + batchSize, payloads.size()));
+                HttpEntity<List<Map<String, Object>>> request = new HttpEntity<>(chunk, headers);
+                ResponseEntity<String> response = restTemplate.postForEntity(EXPO_PUSH_URL, request, String.class);
+                System.out.println(
+                        "Batch push notification chunk sent to " + chunk.size() + " devices: " + response.getStatusCode());
+            }
         } catch (Exception e) {
             System.err.println("Failed to send batch push notifications: " + e.getMessage());
         }
