@@ -3,15 +3,19 @@ package com.DSA.controller;
 import com.DSA.user.User;
 import com.DSA.user.UserRepository;
 import com.DSA.common.ExpoNotificationService;
+import com.DSA.social.Notification;
+import com.DSA.social.NotificationRepository;
+import com.DSA.social.NotificationType;
+import com.DSA.config.ChatWebSocketHandler;
+import com.google.gson.JsonObject;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
-import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/admin")
@@ -21,6 +25,8 @@ public class AdminController {
 
     private final UserRepository userRepository;
     private final ExpoNotificationService expoNotificationService;
+    private final NotificationRepository notificationRepository;
+    private final ChatWebSocketHandler chatWebSocketHandler;
 
     private static final String ALLOWED_ADMIN_EMAIL = "chandanprajapati6307@gmail.com";
 
@@ -48,22 +54,60 @@ public class AdminController {
             return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Title and description are required"));
         }
 
-        // Fetch all users to extract Expo push tokens
+        // Fetch all users
         List<User> users = userRepository.findAll();
-        List<String> pushTokens = users.stream()
-                .filter(Objects::nonNull)
-                .map(u -> u.getExpoPushToken())
-                .filter(Objects::nonNull)
-                .filter(token -> !token.trim().isEmpty())
-                .collect(Collectors.toList());
+        List<String> pushTokens = new java.util.ArrayList<>();
+        int notifiedCount = 0;
 
-        if (pushTokens.isEmpty()) {
-            return ResponseEntity.ok(Map.of("success", true, "message", "No active devices found to receive push notifications."));
+        for (User u : users) {
+            if (u == null) continue;
+
+            // 1. Save a Notification record to Firestore for each user
+            try {
+                Notification notif = Notification.builder()
+                        .recipient(u)
+                        .type(NotificationType.ADMIN_BROADCAST)
+                        .senderId(0L) // System/Admin
+                        .senderName("Admin")
+                        .message("📢 " + title + ": " + description)
+                        .isRead(false)
+                        .createdAt(Instant.now())
+                        .build();
+                notificationRepository.save(notif);
+                notifiedCount++;
+
+                // 2. Push WebSocket NOTIFICATION event to online users
+                if (chatWebSocketHandler.isUserOnline(u.getId())) {
+                    JsonObject payload = new JsonObject();
+                    payload.addProperty("type", "NOTIFICATION");
+                    payload.addProperty("id", notif.getId());
+                    payload.addProperty("notifType", NotificationType.ADMIN_BROADCAST.name());
+                    payload.addProperty("senderId", 0L);
+                    payload.addProperty("senderName", "Admin");
+                    payload.addProperty("senderImage", "");
+                    payload.addProperty("message", notif.getMessage());
+                    payload.addProperty("isRead", false);
+                    payload.addProperty("createdAt", notif.getCreatedAt().toString());
+                    chatWebSocketHandler.sendToUser(u.getId(), payload);
+                }
+            } catch (Exception e) {
+                System.err.println("⚠️ Failed to save broadcast notification for user " + u.getId() + ": " + e.getMessage());
+            }
+
+            // 3. Collect push tokens for batch Expo push
+            if (u.getExpoPushToken() != null && !u.getExpoPushToken().trim().isEmpty()) {
+                pushTokens.add(u.getExpoPushToken());
+            }
         }
 
-        // Broadcast to devices via Expo Service (Expo handles payloads up to 100 at a time)
-        expoNotificationService.sendBatchPushNotifications(pushTokens, title, description, null);
+        // 4. Send Expo batch push notification with data payload
+        if (!pushTokens.isEmpty()) {
+            Map<String, Object> data = new java.util.HashMap<>();
+            data.put("type", "NOTIFICATION");
+            data.put("notifType", NotificationType.ADMIN_BROADCAST.name());
+            expoNotificationService.sendBatchPushNotifications(pushTokens, title, description, data);
+        }
 
-        return ResponseEntity.ok(Map.of("success", true, "message", "Broadcast sent successfully to " + pushTokens.size() + " devices."));
+        return ResponseEntity.ok(Map.of("success", true, "message", "Broadcast sent to " + notifiedCount + " users (" + pushTokens.size() + " push devices)."));
     }
 }

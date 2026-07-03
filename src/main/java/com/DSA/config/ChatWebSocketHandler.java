@@ -8,6 +8,9 @@ import com.DSA.user.UserRepository;
 import com.DSA.common.ExpoNotificationService;
 import com.DSA.social.FriendshipRepository;
 import com.DSA.social.FriendshipStatus;
+import com.DSA.social.Notification;
+import com.DSA.social.NotificationRepository;
+import com.DSA.social.NotificationType;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import io.jsonwebtoken.Claims;
@@ -32,6 +35,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     private final ChatMessageRepository chatMessageRepository;
     private final ExpoNotificationService expoNotificationService;
     private final FriendshipRepository friendshipRepository;
+    private final NotificationRepository notificationRepository;
     private final Gson gson = new Gson();
 
     // Mapping from WebSocketSession to User ID
@@ -54,11 +58,21 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             JsonObject payload = gson.fromJson(message.getPayload(), JsonObject.class);
             String type = payload.has("type") ? payload.get("type").getAsString() : "";
 
+            // ── 0. Keepalive PING ─────────────────────────────────────────────────
+            if ("PING".equals(type)) {
+                JsonObject pong = new JsonObject();
+                pong.addProperty("type", "PONG");
+                if (session.isOpen()) {
+                    session.sendMessage(new TextMessage(pong.toString()));
+                }
+                return;
+            }
+
             // ── 1. Authentication ──────────────────────────────────────────────────
             if ("AUTH".equals(type)) {
                 String token = payload.get("token").getAsString();
                 Claims claims = jwtService.extractClaims(token);
-                Long userId = claims.get("userId", Long.class);
+                Long userId = jwtService.getUserId(claims);
                 sessionUserMap.put(session, userId);
                 
                 JsonObject response = new JsonObject();
@@ -201,7 +215,36 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                             }
                         }
                         
-                        // Send Push Notification if receiver is not online (or always, depending on preference)
+                        // Create a Notification record in Firestore for message notifications
+                        try {
+                            Notification notif = Notification.builder()
+                                    .recipient(receiver)
+                                    .type(NotificationType.MESSAGE)
+                                    .senderId(sender.getId())
+                                    .senderName(sender.getName())
+                                    .senderImage(sender.getImageUrl())
+                                    .message(sender.getName() + ": " + (content.length() > 80 ? content.substring(0, 80) + "..." : content))
+                                    .build();
+                            notificationRepository.save(notif);
+                            System.out.println("✅ [WS SEND] MESSAGE Notification saved to Firestore for receiver: " + receiver.getId());
+
+                            // Push WebSocket NOTIFICATION event to receiver (for badge count update)
+                            JsonObject notifPayload = new JsonObject();
+                            notifPayload.addProperty("type", "NOTIFICATION");
+                            notifPayload.addProperty("id", notif.getId());
+                            notifPayload.addProperty("notifType", NotificationType.MESSAGE.name());
+                            notifPayload.addProperty("senderId", sender.getId());
+                            notifPayload.addProperty("senderName", sender.getName());
+                            notifPayload.addProperty("senderImage", sender.getImageUrl() != null ? sender.getImageUrl() : "");
+                            notifPayload.addProperty("message", notif.getMessage());
+                            notifPayload.addProperty("isRead", false);
+                            notifPayload.addProperty("createdAt", notif.getCreatedAt().toString());
+                            sendToUser(receiver.getId(), notifPayload);
+                        } catch (Exception e) {
+                            System.err.println("⚠️ [WS SEND] Failed to save MESSAGE notification: " + e.getMessage());
+                        }
+
+                        // Send Push Notification if receiver is not online
                         if (!receiverIsOnline && receiver.getExpoPushToken() != null && !receiver.getExpoPushToken().isEmpty()) {
                             System.out.println("🔔 [WS SEND] Receiver is offline. Dispatching push notification to token: " + receiver.getExpoPushToken());
                             Map<String, Object> data = new java.util.HashMap<>();
@@ -217,7 +260,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                                 data
                             );
                         } else {
-                            System.out.println("ℹ️ [WS SEND] Skipping push notification. Receiver online? " + receiverIsOnline + ", PushToken: " + receiver.getExpoPushToken());
+                            System.out.println("ℹ️ [WS SEND] Skipping push notification. Receiver online? " + receiverIsOnline + ", PushToken: " + (receiver.getExpoPushToken() != null ? receiver.getExpoPushToken() : "null"));
                         }
                     }
                 }

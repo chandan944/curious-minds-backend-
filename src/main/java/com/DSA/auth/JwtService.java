@@ -50,6 +50,14 @@ public class JwtService {
                 .getPayload();
     }
 
+    public Long getUserId(Claims claims) {
+        Object userIdObj = claims.get("userId");
+        if (userIdObj instanceof Number) {
+            return ((Number) userIdObj).longValue();
+        }
+        return null;
+    }
+
 
 
 }

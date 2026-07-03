@@ -32,7 +32,7 @@ public class ChatController {
         if (authHeader == null || !authHeader.startsWith("Bearer ")) return null;
         String token = authHeader.substring(7);
         Claims claims = jwtService.extractClaims(token);
-        return claims.get("userId", Long.class);
+        return jwtService.getUserId(claims);
     }
 
     // ── 1. Fetch Global Chat History ───────────────────────────────────────────

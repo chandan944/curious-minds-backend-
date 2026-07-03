@@ -5,5 +5,6 @@ public enum NotificationType {
     FRIEND_REQUEST,
     FRIEND_ACCEPT,
     MESSAGE,
-    NEW_EBOOK
+    NEW_EBOOK,
+    ADMIN_BROADCAST
 }

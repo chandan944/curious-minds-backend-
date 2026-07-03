@@ -226,7 +226,7 @@ public class AuthController {
             String token = authHeader.substring(7);
             Claims claims = jwtService.extractClaims(token);
             String email = claims.get("email", String.class);
-            Long userId = claims.get("userId", Long.class);
+            Long userId = jwtService.getUserId(claims);
 
             if (email == null || userId == null) {
                 return ResponseEntity.status(401).body(Map.of("valid", false, "message", "Malformed token claims"));
@@ -401,7 +401,7 @@ public class AuthController {
             }
             String token = authHeader.substring(7);
             Claims claims = jwtService.extractClaims(token);
-            Long userId = claims.get("userId", Long.class);
+            Long userId = jwtService.getUserId(claims);
 
             if (userId == null) {
                 return ResponseEntity.status(401).body(Map.of("success", false, "message", "Invalid token"));
@@ -432,7 +432,7 @@ public class AuthController {
             }
             String token = authHeader.substring(7);
             Claims claims = jwtService.extractClaims(token);
-            Long userId = claims.get("userId", Long.class);
+            Long userId = jwtService.getUserId(claims);
 
             if (userId == null) {
                 return ResponseEntity.status(401).body(Map.of("success", false, "message", "Invalid token"));
@@ -467,7 +467,7 @@ public class AuthController {
             }
             String token = authHeader.substring(7);
             Claims claims = jwtService.extractClaims(token);
-            Long userId = claims.get("userId", Long.class);
+            Long userId = jwtService.getUserId(claims);
 
             if (userId == null) {
                 return ResponseEntity.status(401).body(Map.of("success", false, "message", "Invalid token"));
@@ -537,7 +537,7 @@ public class AuthController {
             }
             String token = authHeader.substring(7);
             Claims claims = jwtService.extractClaims(token);
-            Long userId = claims.get("userId", Long.class);
+            Long userId = jwtService.getUserId(claims);
 
             if (userId == null) {
                 return ResponseEntity.status(401).body(Map.of("success", false, "message", "Invalid token"));
@@ -571,7 +571,7 @@ public class AuthController {
             }
             String token = authHeader.substring(7);
             Claims claims = jwtService.extractClaims(token);
-            Long userId = claims.get("userId", Long.class);
+            Long userId = jwtService.getUserId(claims);
 
             if (userId == null) {
                 return ResponseEntity.status(401).body(Map.of("success", false, "message", "Invalid token"));
@@ -605,7 +605,7 @@ public class AuthController {
             }
             String token = authHeader.substring(7);
             Claims claims = jwtService.extractClaims(token);
-            Long userId = claims.get("userId", Long.class);
+            Long userId = jwtService.getUserId(claims);
 
             if (userId == null) {
                 return ResponseEntity.status(401).body(Map.of("success", false, "message", "Invalid token"));

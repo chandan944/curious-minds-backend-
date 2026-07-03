@@ -16,6 +16,7 @@ import jakarta.annotation.PostConstruct;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.stream.Collectors;
 
 @Repository
 @SuppressWarnings("null")
@@ -44,9 +45,21 @@ public class ChatMessageRepository {
                     .get().get().getDocuments();
 
             operationTracker.trackReads(docs.size());
+            
+            // Batch resolve sender profiles for the pre-loaded messages
+            List<Long> senderIds = docs.stream()
+                    .map(doc -> doc.getLong("senderId"))
+                    .filter(Objects::nonNull)
+                    .distinct()
+                    .collect(Collectors.toList());
+            
+            List<User> senders = userRepository.findAllByIds(senderIds);
+            Map<Long, User> userMap = senders.stream()
+                    .collect(Collectors.toMap(User::getId, u -> u, (a, b) -> a));
+
             List<ChatMessage> list = new ArrayList<>();
             for (QueryDocumentSnapshot doc : docs) {
-                ChatMessage msg = toEntity(doc);
+                ChatMessage msg = toEntity(doc, userMap);
                 if (msg != null) {
                     list.add(msg);
                 }
@@ -187,29 +200,29 @@ public class ChatMessageRepository {
         int limit = pageable.getPageSize();
         int offset = (int) pageable.getOffset();
         try {
-            // Find messages involving user1
+            // Find only messages specifically between user1 and user2
             Query query = firestore.collection("chat_messages")
                     .where(Filter.or(
-                            Filter.equalTo("senderId", user1),
-                            Filter.equalTo("receiverId", user1)
+                            Filter.and(Filter.equalTo("senderId", user1), Filter.equalTo("receiverId", user2)),
+                            Filter.and(Filter.equalTo("senderId", user2), Filter.equalTo("receiverId", user1))
                     ));
 
             operationTracker.trackRead(); // Query call
             List<QueryDocumentSnapshot> docs = query.get().get().getDocuments();
             operationTracker.trackReads(docs.size());
 
+            // Pre-resolve only user1 and user2 to avoid N+1 queries in the loop
+            User u1 = userRepository.findById(user1).orElse(null);
+            User u2 = userRepository.findById(user2).orElse(null);
+            Map<Long, User> userMap = new HashMap<>();
+            if (u1 != null) userMap.put(user1, u1);
+            if (u2 != null) userMap.put(user2, u2);
+
             List<ChatMessage> messages = new ArrayList<>();
             for (QueryDocumentSnapshot doc : docs) {
-                Long senderId = doc.getLong("senderId");
-                Long receiverId = doc.getLong("receiverId");
-                if (senderId != null && receiverId != null) {
-                    if ((senderId.equals(user1) && receiverId.equals(user2)) ||
-                        (senderId.equals(user2) && receiverId.equals(user1))) {
-                        ChatMessage entity = toEntity(doc);
-                        if (entity != null) {
-                            messages.add(entity);
-                        }
-                    }
+                ChatMessage entity = toEntity(doc, userMap);
+                if (entity != null) {
+                    messages.add(entity);
                 }
             }
 
@@ -266,11 +279,8 @@ public class ChatMessageRepository {
             System.err.println("❌ Error in ChatMessageRepository.findRecentChatPartners: " + e.getMessage());
         }
 
-        List<User> partners = new ArrayList<>();
-        for (Long partnerId : partnerIds) {
-            userRepository.findById(partnerId).ifPresent(partners::add);
-        }
-        return partners;
+        List<Long> idsToFetch = new ArrayList<>(partnerIds);
+        return userRepository.findAllByIds(idsToFetch);
     }
 
     public int countUnreadMessages(Long userId) {
@@ -352,6 +362,10 @@ public class ChatMessageRepository {
     }
 
     private ChatMessage toEntity(DocumentSnapshot doc) {
+        return toEntity(doc, new HashMap<>());
+    }
+
+    private ChatMessage toEntity(DocumentSnapshot doc, Map<Long, User> userMap) {
         if (doc == null || !doc.exists()) return null;
         try {
             Long id = doc.getLong("id");
@@ -365,11 +379,23 @@ public class ChatMessageRepository {
             String replyToSenderName = doc.getString("replyToSenderName");
             String status = doc.getString("status");
 
-            User sender = userRepository.findById(senderId).orElse(null);
-            User receiver = receiverId != null ? userRepository.findById(receiverId).orElse(null) : null;
-
+            User sender = userMap.get(senderId);
+            if (sender == null) {
+                sender = userRepository.findById(senderId).orElse(null);
+            }
             if (sender == null) {
                 sender = User.builder().id(senderId).name("Deleted User").build();
+            }
+
+            User receiver = null;
+            if (receiverId != null) {
+                receiver = userMap.get(receiverId);
+                if (receiver == null) {
+                    receiver = userRepository.findById(receiverId).orElse(null);
+                }
+                if (receiver == null) {
+                    receiver = User.builder().id(receiverId).name("Deleted User").build();
+                }
             }
 
             return ChatMessage.builder()

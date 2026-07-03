@@ -35,7 +35,7 @@ public class EbookProxyController {
         }
         try {
             Claims claims = jwtService.extractClaims(token);
-            if (claims.get("userId", Long.class) == null) {
+            if (jwtService.getUserId(claims) == null) {
                 return ResponseEntity.status(401).body("Unauthorized: invalid token".getBytes());
             }
         } catch (Exception e) {
