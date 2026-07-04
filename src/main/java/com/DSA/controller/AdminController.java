@@ -31,7 +31,8 @@ public class AdminController {
     private static final String ALLOWED_ADMIN_EMAIL = "chandanprajapati6307@gmail.com";
 
     private boolean isNotAdmin(Authentication auth) {
-        if (auth == null) return true;
+        if (auth == null)
+            return true;
         boolean hasAdminRole = auth.getAuthorities().stream()
                 .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
         String email = auth.getName();
@@ -44,14 +45,16 @@ public class AdminController {
             @RequestBody Map<String, String> body) {
 
         if (isNotAdmin(authentication)) {
-            return ResponseEntity.status(403).body(Map.of("success", false, "message", "Forbidden: Only admins can send announcements"));
+            return ResponseEntity.status(403)
+                    .body(Map.of("success", false, "message", "Forbidden: Only admins can send announcements"));
         }
 
         String title = body.get("title");
         String description = body.get("description");
 
         if (title == null || title.trim().isEmpty() || description == null || description.trim().isEmpty()) {
-            return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Title and description are required"));
+            return ResponseEntity.badRequest()
+                    .body(Map.of("success", false, "message", "Title and description are required"));
         }
 
         // Fetch all users
@@ -60,7 +63,8 @@ public class AdminController {
         int notifiedCount = 0;
 
         for (User u : users) {
-            if (u == null) continue;
+            if (u == null)
+                continue;
 
             // 1. Save a Notification record to Firestore for each user
             try {
@@ -91,7 +95,8 @@ public class AdminController {
                     chatWebSocketHandler.sendToUser(u.getId(), payload);
                 }
             } catch (Exception e) {
-                System.err.println("⚠️ Failed to save broadcast notification for user " + u.getId() + ": " + e.getMessage());
+                System.err.println(
+                        "⚠️ Failed to save broadcast notification for user " + u.getId() + ": " + e.getMessage());
             }
 
             // 3. Collect push tokens for batch Expo push
@@ -108,6 +113,7 @@ public class AdminController {
             expoNotificationService.sendBatchPushNotifications(pushTokens, title, description, data);
         }
 
-        return ResponseEntity.ok(Map.of("success", true, "message", "Broadcast sent to " + notifiedCount + " users (" + pushTokens.size() + " push devices)."));
+        return ResponseEntity.ok(Map.of("success", true, "message",
+                "Broadcast sent to " + notifiedCount + " users (" + pushTokens.size() + " push devices)."));
     }
 }

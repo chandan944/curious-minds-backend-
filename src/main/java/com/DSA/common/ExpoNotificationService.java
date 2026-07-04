@@ -43,6 +43,7 @@ public class ExpoNotificationService {
             Map<String, Object> payload = new HashMap<>();
             payload.put("to", to);
             payload.put("sound", "default");
+            payload.put("channelId", "default");
             payload.put("title", title);
             payload.put("body", body);
             if (data != null) {
@@ -75,15 +76,16 @@ public class ExpoNotificationService {
             List<Map<String, Object>> payloads = new ArrayList<>();
             for (String to : toList) {
                 if (to != null && !to.trim().isEmpty()) {
-                    Map<String, Object> payload = new HashMap<>();
-                    payload.put("to", to);
-                    payload.put("sound", "default");
-                    payload.put("title", title);
-                    payload.put("body", body);
-                    if (data != null) {
-                        payload.put("data", data);
-                    }
-                    payloads.add(payload);
+                     Map<String, Object> payload = new HashMap<>();
+                     payload.put("to", to);
+                     payload.put("sound", "default");
+                     payload.put("channelId", "default");
+                     payload.put("title", title);
+                     payload.put("body", body);
+                     if (data != null) {
+                         payload.put("data", data);
+                     }
+                     payloads.add(payload);
                 }
             }
 
